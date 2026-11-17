@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # 1. Cơ sở dữ liệu tập trung PostgreSQL 16
+  postgres:
+    image: postgres:16-alpine
+    container_name: food_order_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: food_order_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d food_order_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Message Broker RabbitMQ 3.13 kèm Web Management
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: food_order_rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"     # AMQP Protocol Port
+      - "15672:15672"   # Management Web UI Port
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  rabbitmq_data:

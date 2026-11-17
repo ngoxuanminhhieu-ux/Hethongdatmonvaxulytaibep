@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Đặt món Ăn - Khách hàng</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Thư viện SignalR Client qua CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+</head>
+<body>
+
+    <header>
+        <h1>🍲 Hệ Thống Đặt Món Phân Tán (Đề tài 04)</h1>
+        <div class="nav-links">
+            <a href="index.html" class="active">🍽️ Khách hàng đặt món</a>
+            <a href="kitchen.html">👨‍🍳 Màn hình Bếp (KDS)</a>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="grid">
+            <!-- Cột trái: Thực đơn món ăn -->
+            <div>
+                <div class="card">
+                    <div class="card-title">
+                        <span>📋 Thực đơn món ăn</span>
+                        <span id="menu-loading" style="font-size: 0.85rem; color: #64748b; font-weight: normal; margin-left: auto;">Đang tải menu...</span>
+                    </div>
+                    <div id="menu-container" class="menu-grid">
+                        <!-- Render danh sách món ăn từ API -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cột phải: Giỏ hàng & Theo dõi đơn -->
+            <div>
+                <!-- Giỏ hàng -->
+                <div class="card">
+                    <div class="card-title">🛒 Giỏ hàng của bạn</div>
+                    <div class="form-group">
+                        <label for="tableNumber">Số bàn phục vụ (*)</label>
+                        <input type="text" id="tableNumber" class="form-control" placeholder="Ví dụ: Bàn 01" value="Bàn 01">
+                    </div>
+                    <div class="form-group">
+                        <label for="customerName">Họ và tên (*)</label>
+                        <input type="text" id="customerName" class="form-control" placeholder="Ví dụ: Nguyễn Văn An" value="Nguyễn Văn An">
+                    </div>
+                    <div class="form-group">
+                        <label for="phone">Số điện thoại</label>
+                        <input type="text" id="phone" class="form-control" placeholder="0901234567" value="0901234567">
+                    </div>
+                    <div class="form-group">
+                        <label for="orderNotes">Ghi chú cho bếp</label>
+                        <input type="text" id="orderNotes" class="form-control" placeholder="Ví dụ: Làm ít hành, nước dùng nóng">
+                    </div>
+
+                    <div id="cart-items-container">
+                        <p style="color: #94a3b8; text-align: center; padding: 1.5rem 0;">Chưa có món ăn nào trong giỏ.</p>
+                    </div>
+
+                    <div class="cart-total">
+                        <span>Tổng tiền:</span>
+                        <span id="cart-total-price" style="color: var(--primary);">0 đ</span>
+                    </div>
+
+                    <button id="btn-submit-order" class="btn btn-primary" style="width: 100%; padding: 0.75rem;" disabled>
+                        🚀 Gửi Đơn Đặt Món
+                    </button>
+                </div>
+
+                <!-- Theo dõi trạng thái đơn hàng (Realtime) -->
+                <div id="order-tracking-card" class="card" style="display: none;">
+                    <div class="card-title">
+                        <span>📡 Theo dõi trạng thái Realtime</span>
+                        <span id="realtime-status-badge" class="badge badge-pending" style="margin-left: auto;">Pending</span>
+                    </div>
+                    <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.5rem;">
+                        Mã đơn: <b id="tracking-order-id" style="color: var(--dark); word-break: break-all;">-</b>
+                    </p>
+                    <div id="realtime-alert-box" style="padding: 0.75rem; border-radius: 6px; background: #e0f2fe; color: #0369a1; font-size: 0.9rem; margin-bottom: 1rem;">
+                        Đơn hàng đã được gửi vào hàng đợi RabbitMQ và đang chờ bếp tiếp nhận...
+                    </div>
+
+                    <div class="timeline">
+                        <div id="step-pending" class="timeline-item active">
+                            <div class="timeline-dot"></div>
+                            <h4>1. Đã nhận đơn (Pending)</h4>
+                            <p style="font-size: 0.8rem; color: #64748b;">Order API đã tiếp nhận và gửi vào RabbitMQ</p>
+                        </div>
+                        <div id="step-preparing" class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <h4>2. Đang chế biến (Preparing)</h4>
+                            <p style="font-size: 0.8rem; color: #64748b;">Bếp đã bốc đơn từ queue và đang nấu món</p>
+                        </div>
+                        <div id="step-ready" class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <h4>3. Món ăn sẵn sàng (Ready)</h4>
+                            <p style="font-size: 0.8rem; color: #64748b;">Món ăn đã nấu xong, phục vụ mang ra bàn</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
