@@ -52,11 +52,20 @@ PTUDPT-DA/
 │   │   ├── YEU_CAU_HE_THONG.md     # Phân tích Functional & Non-Functional Requirements
 │   │   ├── USE_CASE_DIAGRAM.md     # Biểu đồ Use Case và đặc tả kịch bản
 │   │   └── ARCHITECTURE_OVERVIEW.md# Sơ đồ kiến trúc phân tán tổng quan & công nghệ
-│   └── tuan-2/
-│       ├── KIEN_TRUC_CHI_TIET.md   # Thiết kế chi tiết từng service & phân định ranh giới
-│       ├── THIET_KE_CSDL_ERD.md    # Sơ đồ ERD, từ điển dữ liệu 5 bảng & Index
-│       ├── API_CONTRACT.md         # Đặc tả chuẩn REST API (Request/Response)
-│       └── RABBITMQ_DESIGN.md      # Topology RabbitMQ: Exchanges, Queues, DLQ, Routing Keys
+│   ├── tuan-2/
+│   │   ├── KIEN_TRUC_CHI_TIET.md   # Thiết kế chi tiết từng service & phân định ranh giới
+│   │   ├── THIET_KE_CSDL_ERD.md    # Sơ đồ ERD, từ điển dữ liệu 5 bảng & Index
+│   │   ├── API_CONTRACT.md         # Đặc tả chuẩn REST API (Request/Response)
+│   │   └── RABBITMQ_DESIGN.md      # Topology RabbitMQ: Exchanges, Queues, DLQ, Routing Keys
+│   └── tuan-3/
+│       ├── HUONG_DAN_TUAN_3.md     # Báo cáo triển khai Order API & Quản lý thực đơn
+│       ├── KET_QUA_KIEM_THU_TUAN_3.md # Báo cáo kết quả kiểm thử (18/18 tests passed)
+│       └── postman/
+│           └── Order_API_Collection.json # Postman Collection kiểm thử tự động
+├── postman/
+│   └── Order_API_Collection.json   # Postman Collection bản root
+├── tests/
+│   └── OrderApi.Tests/             # Bộ kiểm thử tự động xUnit, Moq, SQLite In-Memory
 └── src/
     ├── Shared/                     # Thư viện dùng chung (Contracts, Events, Enums)
     ├── OrderApi/                   # REST API tiếp nhận đơn & thực đơn (Port 5001)
@@ -67,7 +76,7 @@ PTUDPT-DA/
 
 ---
 
-## 4. Hướng dẫn cài đặt và Khởi chạy (Dành cho Tuần 1 & 2)
+## 4. Hướng dẫn cài đặt và Khởi chạy
 
 ### Bước 1: Khởi động Hạ tầng Container (PostgreSQL & RabbitMQ)
 Đảm bảo đã mở Docker Desktop, tại thư mục gốc chạy:
@@ -82,21 +91,42 @@ Kiểm tra các dịch vụ đang chạy:
 ```powershell
 dotnet build FoodOrderSystem.sln
 ```
-*Kết quả:* Biên dịch thành công 4 project (`Shared`, `OrderApi`, `KitchenWorker`, `NotificationService`) với 0 Warning và 0 Error.
+*Kết quả:* Biên dịch thành công 5 project (`Shared`, `OrderApi`, `KitchenWorker`, `NotificationService`, `OrderApi.Tests`) với 0 Warning và 0 Error.
 
-### Bước 3: Khởi chạy các Service (Mở riêng từng Terminal)
+### Bước 3: Chạy Kiểm thử Tự động (Automated Tests - Tuần 3)
+```powershell
+dotnet test FoodOrderSystem.sln
+```
+*Kết quả:* Vượt qua toàn bộ **18/18 unit/integration test cases** (100% Passed) kiểm tra nghiệp vụ tính tiền server-side, validation, quản lý thực đơn và chuyển trạng thái.
+
+### Bước 4: Khởi chạy các Service (Mở riêng từng Terminal)
 
 **Terminal 1 - Khởi chạy Order API:**
 ```powershell
 dotnet run --project src/OrderApi/OrderApi.csproj --urls "http://localhost:5001"
 ```
-*Truy cập Swagger UI:* `http://localhost:5001` để test các API `/api/menu`, `/api/orders`.
+*Truy cập Swagger UI:* `http://localhost:5001` để xem và test trực tiếp các API `/api/menu`, `/api/orders`.
 
 **Terminal 2 - Khởi chạy Notification Service:**
 ```powershell
 dotnet run --project src/NotificationService/NotificationService.csproj --urls "http://localhost:5003"
 ```
 *Truy cập Endpoint:* `http://localhost:5003`
+
+**Terminal 3 - Khởi chạy Kitchen Worker:**
+```powershell
+dotnet run --project src/KitchenWorker/KitchenWorker.csproj
+```
+
+**Terminal 4 - Mở giao diện Web Client:**
+Mở trực tiếp file `src/Client/index.html` (Khách hàng) và `src/Client/kitchen.html` (Màn hình bếp) trên trình duyệt hoặc chạy qua Live Server:
+```powershell
+npx serve src/Client -p 8080
+```
+Truy cập: `http://localhost:8080`
+
+### Bước 5: Kiểm thử bằng Postman Collection
+Import file `postman/Order_API_Collection.json` vào Postman để chạy 17 test requests tự động với kịch bản từ xem menu, đặt món, kiểm tra lỗi validation đến cập nhật trạng thái bếp.
 
 **Terminal 3 - Khởi chạy Kitchen Worker:**
 ```powershell
