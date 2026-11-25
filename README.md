@@ -57,18 +57,23 @@ PTUDPT-DA/
 │   │   ├── THIET_KE_CSDL_ERD.md    # Sơ đồ ERD, từ điển dữ liệu 5 bảng & Index
 │   │   ├── API_CONTRACT.md         # Đặc tả chuẩn REST API (Request/Response)
 │   │   └── RABBITMQ_DESIGN.md      # Topology RabbitMQ: Exchanges, Queues, DLQ, Routing Keys
-│   └── tuan-3/
-│       ├── HUONG_DAN_TUAN_3.md     # Báo cáo triển khai Order API & Quản lý thực đơn
-│       ├── KET_QUA_KIEM_THU_TUAN_3.md # Báo cáo kết quả kiểm thử (18/18 tests passed)
+│   ├── tuan-3/
+│   │   ├── HUONG_DAN_TUAN_3.md     # Báo cáo triển khai Order API & Quản lý thực đơn
+│   │   ├── KET_QUA_KIEM_THU_TUAN_3.md # Báo cáo kết quả kiểm thử (18/18 tests passed)
+│   │   └── postman/
+│   │       └── Order_API_Collection.json # Postman Collection kiểm thử tự động
+│   └── tuan-4/
+│       ├── TICH_HOP_RABBITMQ_CHUYEN_SAU.md # Báo cáo kỹ thuật: Persistent Connection, Confirms, DLQ
+│       ├── KIEM_CHUNG_THONG_DIEP_WEB_MANAGEMENT.md # Hướng dẫn kiểm chứng Web UI (15672)
 │       └── postman/
-│           └── Order_API_Collection.json # Postman Collection kiểm thử tự động
+│           └── Order_API_Collection.json # Postman Collection kèm RabbitMQ Diagnostics
 ├── postman/
-│   └── Order_API_Collection.json   # Postman Collection bản root
+│   └── Order_API_Collection.json   # Postman Collection bản root (đầy đủ Tuần 1-4)
 ├── tests/
-│   └── OrderApi.Tests/             # Bộ kiểm thử tự động xUnit, Moq, SQLite In-Memory
+│   └── OrderApi.Tests/             # Bộ kiểm thử tự động xUnit, Moq, SQLite In-Memory (23 tests passed)
 └── src/
     ├── Shared/                     # Thư viện dùng chung (Contracts, Events, Enums)
-    ├── OrderApi/                   # REST API tiếp nhận đơn & thực đơn (Port 5001)
+    ├── OrderApi/                   # REST API tiếp nhận đơn & RabbitMQ Producer (Port 5001)
     ├── KitchenWorker/              # Background Worker lắng nghe queue & làm món
     ├── NotificationService/        # Realtime SignalR Hub phát thông báo (Port 5003)
     └── Client/                     # Frontend Web: Màn hình khách & Màn hình bếp KDS
@@ -88,6 +93,23 @@ Kiểm tra các dịch vụ đang chạy:
 - **RabbitMQ Web Management:** `http://localhost:15672` (User: `guest`, Pass: `guest`)
 
 ### Bước 2: Biên dịch toàn bộ Solution .NET
+```powershell
+dotnet build FoodOrderSystem.sln
+```
+*Kết quả:* Biên dịch thành công 5 project (`Shared`, `OrderApi`, `KitchenWorker`, `NotificationService`, `OrderApi.Tests`) với 0 Warning và 0 Error.
+
+### Bước 3: Chạy Kiểm thử Tự động (Automated Tests - Tuần 1 đến 4)
+```powershell
+dotnet test FoodOrderSystem.sln
+```
+*Kết quả:* Vượt qua toàn bộ **23/23 unit/integration test cases** (100% Passed) kiểm tra nghiệp vụ tính tiền server-side, validation, quản lý thực đơn, RabbitMQ Persistent Connection và Diagnostics.
+
+### Bước 4: Kiểm chứng RabbitMQ qua Web Management Console (Tuần 4)
+1. Mở trình duyệt vào [http://localhost:15672](http://localhost:15672) (User: `guest` / `guest`).
+2. Tab **Exchanges**: kiểm tra `food.order.exchange` (Topic, Durable) và `food.order.dlx` (Direct, Durable).
+3. Tab **Queues**: kiểm tra `order.process.queue` (gắn DLX), `order.notification.queue`, và `order.dlq`.
+4. Gửi test message hoặc tạo đơn hàng qua API $\to$ kiểm tra số lượng message `Ready` tăng lên và bấm "Get messages" để xem nội dung JSON payload và thuộc tính `delivery_mode: 2` (Persistent).
+5. Chi tiết từng bước có ảnh/sơ đồ tại [docs/tuan-4/KIEM_CHUNG_THONG_DIEP_WEB_MANAGEMENT.md](docs/tuan-4/KIEM_CHUNG_THONG_DIEP_WEB_MANAGEMENT.md).
 ```powershell
 dotnet build FoodOrderSystem.sln
 ```

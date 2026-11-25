@@ -1,8 +1,8 @@
 {
 	"info": {
 		"_postman_id": "9d8b746a-208b-4b13-a4e9-158a98bf35a4",
-		"name": "Food Ordering System - Week 3 (Order API & Menu Management)",
-		"description": "Bộ Postman Collection kiểm thử tự động toàn bộ API Quản lý thực đơn và Đặt món ăn - Đề tài 04 môn Phát triển ứng dụng phân tán (PTUDPT)",
+		"name": "Food Ordering System - Week 4 (RabbitMQ Integration & Order API)",
+		"description": "Bộ Postman Collection kiểm thử tự động toàn bộ API Quản lý thực đơn, Đặt món ăn và Kiểm chứng RabbitMQ Broker - Đề tài 04 môn Phát triển ứng dụng phân tán (PTUDPT)",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -211,7 +211,7 @@
 			"name": "2. Order Management (Quản lý đơn hàng)",
 			"item": [
 				{
-					"name": "POST /api/orders - Tạo đơn đặt món hợp lệ (Success)",
+					"name": "POST /api/orders - Tạo đơn đặt món hợp lệ (Success & Publish RabbitMQ)",
 					"event": [
 						{
 							"listen": "test",
@@ -544,6 +544,125 @@
 								"orders",
 								"{{currentOrderId}}",
 								"cancel"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "3. RabbitMQ Diagnostics & Verification (Kiểm chứng Message Broker)",
+			"item": [
+				{
+					"name": "GET /api/rabbitmq/health - Kiểm tra kết nối tới RabbitMQ Broker",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200 OK\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"var data = pm.response.json();",
+									"pm.test(\"Status is Healthy or Unhealthy\", function () {",
+									"    pm.expect(data.status).to.be.oneOf([\"Healthy\", \"Unhealthy\"]);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/rabbitmq/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"rabbitmq",
+								"health"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "GET /api/rabbitmq/topology - Xem cấu hình Topology (Exchanges, Queues, DLQ)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200 OK\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"var data = pm.response.json();",
+									"pm.test(\"Topology contains mainExchange and queues\", function () {",
+									"    pm.expect(data.mainExchange.name).to.eql(\"food.order.exchange\");",
+									"    pm.expect(data.queues).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/rabbitmq/topology",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"rabbitmq",
+								"topology"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "POST /api/rabbitmq/test-publish - Bắn message kiểm chứng vào RabbitMQ",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status is 200 OK or 503 Service Unavailable\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"routingKey\": \"order.created\",\n  \"payload\": {\n    \"testId\": \"test-correlation-123\",\n    \"sampleDish\": \"Phở Bò Tái Nạm\",\n    \"table\": \"Bàn VIP 01\",\n    \"message\": \"Thông điệp kiểm chứng Publisher Confirms & Message Durability - Tuần 4\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/rabbitmq/test-publish",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"rabbitmq",
+								"test-publish"
 							]
 						}
 					},

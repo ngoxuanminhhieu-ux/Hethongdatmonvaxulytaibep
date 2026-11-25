@@ -14,7 +14,7 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "Food Order API - Đề tài 04",
         Version = "v1",
-        Description = "API Đặt món, Quản lý thực đơn và Xử lý đơn hàng phân tán (Tuần 3: Order API & Menu Management)"
+        Description = "API Đặt món, Quản lý thực đơn và Tích hợp RabbitMQ chuyên sâu (Tuần 4: Message Durability, Resilient Connection, Publisher Confirms)"
     });
 });
 
@@ -35,6 +35,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseNpgsql(connectionString);
 });
+
+// Register RabbitMQ Persistent Connection (Singleton)
+builder.Services.AddSingleton<IRabbitMqPersistentConnection, RabbitMqPersistentConnection>();
+
+// Register RabbitMQ Topology Auto-Initializer (Hosted Service)
+builder.Services.AddHostedService<RabbitMqTopologyInitializer>();
 
 // Register RabbitMQ Producer (Singleton)
 builder.Services.AddSingleton<IRabbitMqProducer, RabbitMqProducer>();

@@ -5,86 +5,140 @@ using Shared.Contracts;
 
 namespace OrderApi.Services;
 
-public interface IRabbitMqProducer
-{
-    void PublishOrderCreated(OrderCreatedEvent orderEvent);
-    void PublishOrderStatusChanged(OrderStatusChangedEvent statusEvent);
-}
-
 public class RabbitMqProducer : IRabbitMqProducer
 {
-    private readonly IConfiguration _configuration;
+    private readonly IRabbitMqPersistentConnection _persistentConnection;
     private readonly ILogger<RabbitMqProducer> _logger;
-    private readonly string _hostname;
-    private readonly int _port;
-    private readonly string _username;
-    private readonly string _password;
     private const string ExchangeName = "food.order.exchange";
+    private readonly int _maxPublishRetries = 3;
 
-    public RabbitMqProducer(IConfiguration configuration, ILogger<RabbitMqProducer> logger)
+    public RabbitMqProducer(
+        IRabbitMqPersistentConnection persistentConnection,
+        ILogger<RabbitMqProducer> logger)
     {
-        _configuration = configuration;
+        _persistentConnection = persistentConnection;
         _logger = logger;
-        _hostname = _configuration["RabbitMQ:Host"] ?? "localhost";
-        _port = int.TryParse(_configuration["RabbitMQ:Port"], out var p) ? p : 5672;
-        _username = _configuration["RabbitMQ:Username"] ?? "guest";
-        _password = _configuration["RabbitMQ:Password"] ?? "guest";
     }
 
-    public void PublishOrderCreated(OrderCreatedEvent orderEvent)
+    public bool IsBrokerConnected => _persistentConnection.IsConnected;
+
+    public bool PublishOrderCreated(OrderCreatedEvent orderEvent)
     {
-        PublishMessage(orderEvent, "order.created", "OrderCreatedEvent");
+        return PublishWithResilience(
+            orderEvent,
+            routingKey: "order.created",
+            eventName: nameof(OrderCreatedEvent),
+            correlationId: orderEvent.CorrelationId.ToString());
     }
 
-    public void PublishOrderStatusChanged(OrderStatusChangedEvent statusEvent)
+    public bool PublishOrderStatusChanged(OrderStatusChangedEvent statusEvent)
     {
-        PublishMessage(statusEvent, "order.status.changed", "OrderStatusChangedEvent");
+        return PublishWithResilience(
+            statusEvent,
+            routingKey: "order.status.changed",
+            eventName: nameof(OrderStatusChangedEvent),
+            correlationId: statusEvent.CorrelationId.ToString());
     }
 
-    private void PublishMessage<T>(T message, string routingKey, string eventName)
+    public bool PublishTestMessage(string routingKey, object payload)
     {
-        try
+        var correlationId = Guid.NewGuid().ToString();
+        return PublishWithResilience(
+            payload,
+            routingKey: routingKey,
+            eventName: "DiagnosticTestEvent",
+            correlationId: correlationId);
+    }
+
+    private bool PublishWithResilience<T>(T message, string routingKey, string eventName, string correlationId)
+    {
+        if (!_persistentConnection.IsConnected)
         {
-            var factory = new ConnectionFactory
+            _persistentConnection.TryConnect();
+        }
+
+        if (!_persistentConnection.IsConnected)
+        {
+            _logger.LogWarning("Không thể gửi sự kiện {EventName} vì chưa kết nối được tới RabbitMQ broker.", eventName);
+            return false;
+        }
+
+        var json = JsonSerializer.Serialize(message, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false
+        });
+        var body = Encoding.UTF8.GetBytes(json);
+
+        for (var attempt = 1; attempt <= _maxPublishRetries; attempt++)
+        {
+            try
             {
-                HostName = _hostname,
-                Port = _port,
-                UserName = _username,
-                Password = _password,
-                RequestedConnectionTimeout = TimeSpan.FromSeconds(3)
-            };
+                using var channel = _persistentConnection.CreateModel();
 
-            using var connection = factory.CreateConnection();
-            using var channel = connection.CreateModel();
+                // 1. Kích hoạt chế độ Publisher Confirms
+                channel.ConfirmSelect();
 
-            channel.ExchangeDeclare(
-                exchange: ExchangeName,
-                type: ExchangeType.Topic,
-                durable: true,
-                autoDelete: false);
+                // Đảm bảo Exchange tồn tại
+                channel.ExchangeDeclare(
+                    exchange: ExchangeName,
+                    type: ExchangeType.Topic,
+                    durable: true,
+                    autoDelete: false);
 
-            var json = JsonSerializer.Serialize(message, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-            var body = Encoding.UTF8.GetBytes(json);
+                // 2. Thiết lập Message Properties đảm bảo Message Durability
+                var properties = channel.CreateBasicProperties();
+                properties.Persistent = true; // DeliveryMode = 2 (Lưu an toàn xuống ổ đĩa broker)
+                properties.DeliveryMode = 2;
+                properties.ContentType = "application/json";
+                properties.ContentEncoding = "utf-8";
+                properties.Type = eventName;
+                properties.MessageId = Guid.NewGuid().ToString();
+                properties.CorrelationId = correlationId;
+                properties.AppId = "OrderApi";
+                properties.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
-            var properties = channel.CreateBasicProperties();
-            properties.Persistent = true;
-            properties.ContentType = "application/json";
-            properties.Type = eventName;
-            properties.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                properties.Headers = new Dictionary<string, object>
+                {
+                    { "x-source-service", "OrderApi" },
+                    { "x-publish-attempt", attempt },
+                    { "x-client-timestamp", DateTime.UtcNow.ToString("o") }
+                };
 
-            channel.BasicPublish(
-                exchange: ExchangeName,
-                routingKey: routingKey,
-                basicProperties: properties,
-                body: body);
+                // 3. Publish message vào Topic Exchange
+                channel.BasicPublish(
+                    exchange: ExchangeName,
+                    routingKey: routingKey,
+                    mandatory: false,
+                    basicProperties: properties,
+                    body: body);
 
-            _logger.LogInformation("Đã publish thành công sự kiện {EventName} lên Exchange '{Exchange}' với RoutingKey '{Key}'",
-                eventName, ExchangeName, routingKey);
+                // 4. Chờ xác nhận từ broker (Publisher Confirms)
+                var confirmed = channel.WaitForConfirms(TimeSpan.FromSeconds(5), out var timedOut);
+
+                if (confirmed && !timedOut)
+                {
+                    _logger.LogInformation(">>> [RABBITMQ CONFIRMED] Broker đã xác nhận lưu an toàn sự kiện {EventName} [CorrelationId: {CorrId}] vào Exchange '{Exchange}' với RoutingKey '{Key}'",
+                        eventName, correlationId, ExchangeName, routingKey);
+                    return true;
+                }
+
+                _logger.LogWarning("Publisher Confirm không nhận được phản hồi xác nhận (TimedOut: {TimedOut}) cho sự kiện {EventName} ở lần thử {Attempt}.",
+                    timedOut, eventName, attempt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Lỗi xảy ra khi publish sự kiện {EventName} lần {Attempt}/{Max}. Đang thử lại...",
+                    eventName, attempt, _maxPublishRetries);
+
+                if (attempt < _maxPublishRetries)
+                {
+                    Thread.Sleep(500 * attempt);
+                }
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Không thể kết nối RabbitMQ tại {Host}:{Port} để publish sự kiện {EventName}. Đơn hàng vẫn được lưu trong DB.",
-                _hostname, _port, eventName);
-        }
+
+        _logger.LogError("Publish sự kiện {EventName} thất bại sau {Max} lần thử.", eventName, _maxPublishRetries);
+        return false;
     }
 }
