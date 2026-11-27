@@ -1,149 +1,87 @@
-# HƯỚNG DẪN KIỂM CHỨNG THÔNG ĐIỆP QUA RABBITMQ WEB MANAGEMENT CONSOLE
-## Đề tài 04: Hệ thống Đặt món và Xử lý tại Bếp (Food Ordering & Kitchen Processing)
-**Mục tiêu:** Hướng dẫn từng bước kiểm chứng các thông điệp được Order API đẩy vào RabbitMQ thông qua giao diện Web Management tại `http://localhost:15672`.
+# BÁO CÁO KIỂM CHỨNG THÔNG ĐIỆP QUA RABBITMQ WEB MANAGEMENT
+## Đề tài 09: Hệ thống Đặt lịch khám và Quản lý hàng đợi (Clinic Appointment & Queue Management)
 
 ---
 
-## 1. Chuẩn bị Môi trường
+## 1. Giới thiệu giao diện RabbitMQ Web Management
 
-1. **Khởi động RabbitMQ:**
-   ```powershell
-   docker compose up -d rabbitmq
-   ```
-2. **Khởi động Order API:**
-   ```powershell
-   dotnet run --project src/OrderApi/OrderApi.csproj --urls "http://localhost:5001"
-   ```
-3. **Mở trình duyệt truy cập RabbitMQ Management Console:**
-   - **URL:** [http://localhost:15672](http://localhost:15672)
-   - **Tài khoản:** `guest`
-   - **Mật khẩu:** `guest`
+RabbitMQ Management UI được tích hợp sẵn qua cổng `http://localhost:15672` (Tài khoản mặc định: `guest` / `guest`).
+
+Giao diện quản lý cung cấp các công cụ trực quan để:
+- Giám sát lưu lượng thông điệp (Publish rate, Deliver/Ack rate).
+- Kiểm tra danh sách Exchange, Queues và các ràng buộc Bindings.
+- Xem số lượng message đang sẵn sàng (`Ready`), đang chờ xử lý (`Unacked`) trong từng Queue.
+- Trích xuất nội dung thông điệp mẫu (Get Messages) để đối soát cấu trúc JSON.
 
 ---
 
-## 2. Các bước Kiểm chứng Chi tiết
+## 2. Kiểm chứng Topology đã khởi tạo tự động
 
-### Bước 1: Kiểm chứng Kết nối Bền bỉ (Connections & Channels)
-1. Trên thanh điều hướng của Web UI, bấm vào tab **Connections**.
-2. **Quan sát:**
-   - Bạn sẽ thấy một connection từ `OrderApi` đang ở trạng thái `running`.
-   - Cột **SSL/TLS**: plain text (TCP).
-   - Cột **Channels**: có ít nhất 1 channel đang hoạt động.
-3. Bấm vào tab **Channels**:
-   - Quan sát thấy channel đang mở, cờ `C` (Confirms) hiển thị xác nhận chế độ **Publisher Confirms** đã được kích hoạt.
+Khi Appointment API khởi động, `RabbitMqTopologyInitializer` tự động khai báo đầy đủ trên RabbitMQ:
 
-```
-+---------------------------------------------------------------------------------+
-| RabbitMQ Management - Connections                                               |
-| User: guest | Virtual host: /                                                   |
-+---------------------------------------------------------------------------------+
-| Client connection | State   | Channels | Network latency | SSL/TLS |            |
-| 172.18.0.1:54210  | running | 1        | 0.2ms           | No      |            |
-+---------------------------------------------------------------------------------+
-```
+### 2.1. Exchanges (Tab `Exchanges`)
+| Name | Type | Features | Bindings |
+|---|---|---|---|
+| `clinic.appointment.exchange` | `topic` | `D` (Durable) | Gắn tới `queue.process.queue` (`appointment.requested`) và `queue.notification.queue` (`queue.*`, `appointment.*`) |
+| `clinic.appointment.dlx` | `direct` | `D` (Durable) | Gắn tới `queue.dlq` (`queue.failed`) |
+
+### 2.2. Queues (Tab `Queues`)
+| Name | Features | Arguments | Consumers |
+|---|---|---|---|
+| `queue.process.queue` | `D` (Durable) | `x-dead-letter-exchange: clinic.appointment.dlx`<br/>`x-dead-letter-routing-key: queue.failed` | Queue Worker |
+| `queue.notification.queue` | `D` (Durable) | - | Notification Service |
+| `queue.dlq` | `D` (Durable) | - | DLQ Auditor |
 
 ---
 
-### Bước 2: Kiểm chứng Topology (Exchanges & Bindings)
-1. Bấm vào tab **Exchanges**:
-   - Kiểm tra thấy sàn giao dịch **`food.order.exchange`**:
-     - Type: `topic`
-     - Features: `D` (Durable - Bền vững)
-   - Kiểm tra thấy sàn giao dịch lỗi **`food.order.dlx`**:
-     - Type: `direct`
-     - Features: `D` (Durable)
-2. Bấm vào sàn giao dịch `food.order.exchange`:
-   - Kéo xuống mục **Bindings**, quan sát thấy:
-     - Queue `order.process.queue` liên kết với routing key `order.created`.
-     - Queue `order.notification.queue` liên kết với routing key `order.*`.
+## 3. Kiểm chứng quá trình đẩy thông điệp khi Đặt lịch khám
 
----
+### 3.1. Kịch bản thực hiện
+1. Gọi API `POST /api/appointments` để tạo một lịch khám mới cho bệnh nhân "Nguyễn Văn Bệnh Nhân".
+2. Truy cập vào RabbitMQ Web Management tại `http://localhost:15672/#/queues/%2F/queue.process.queue`.
+3. Kiểm tra thông số hàng đợi:
+   - Cột **Ready**: Tăng lên `1`.
+   - Biểu đồ **Message Rates**: Xuất hiện xung nhịp Publish ~ 1 msg/s.
+4. Mở rộng mục **Get messages**, bấm nút **Get Message(s)** để xem nội dung message.
 
-### Bước 3: Kiểm chứng Hàng đợi và Cơ chế Dead Letter (Queues)
-1. Bấm vào tab **Queues**:
-   - Quan sát danh sách 3 hàng đợi đã được tự động khởi tạo:
-     1. **`order.process.queue`**:
-        - Features: `D` (Durable), `DLX` (Dead Letter Exchange gắn với `food.order.dlx`).
-     2. **`order.notification.queue`**:
-        - Features: `D` (Durable).
-     3. **`order.dlq`**:
-        - Features: `D` (Durable) - Dead Letter Queue.
-
----
-
-### Bước 4: Kiểm chứng Đẩy thông điệp qua API (Message Ingestion)
-
-#### Cách 1: Gửi qua Endpoint Chẩn đoán
-Gửi request `POST /api/rabbitmq/test-publish`:
-```powershell
-curl -X POST "http://localhost:5001/api/rabbitmq/test-publish" `
-     -H "Content-Type: application/json" `
-     -d '{"routingKey": "order.created", "payload": {"table": "Bàn 01", "dish": "Phở Bò Tái Nạm"}}'
-```
-*Phản hồi:*
+### 3.2. Kết quả kiểm chứng nội dung Message
+- **Payload:**
 ```json
 {
-  "success": true,
-  "routingKey": "order.created",
-  "exchange": "food.order.exchange",
-  "message": "Đã publish thành công với Publisher Confirms và DeliveryMode=2 (Persistent)..."
+  "eventId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+  "correlationId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+  "eventType": "AppointmentRequestedEvent",
+  "timestamp": "2026-11-27T14:30:00.123456Z",
+  "sourceService": "AppointmentApi",
+  "data": {
+    "appointmentId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+    "patientId": 10,
+    "patientName": "Nguyễn Văn Bệnh Nhân",
+    "phone": "0988888888",
+    "doctorId": 1,
+    "doctorName": "BS. CKII Nguyễn Văn A",
+    "roomNumber": "P.201",
+    "timeSlotId": 1,
+    "slotDate": "2026-11-28",
+    "startTime": "08:00",
+    "endTime": "09:00",
+    "symptoms": "Đau tức ngực trái khi gắng sức",
+    "createdAt": "2026-11-27T14:30:00.123456Z"
+  }
 }
 ```
-
-#### Cách 2: Tạo đơn hàng thực tế
-Gửi request `POST /api/orders`:
-```powershell
-curl -X POST "http://localhost:5001/api/orders" `
-     -H "Content-Type: application/json" `
-     -d '{"customerName":"Nguyễn Văn An","tableNumber":"Bàn 01","items":[{"menuItemId":1,"quantity":2}]}'
-```
+- **Properties:**
+  - `delivery_mode: 2` (Persistent) $\to$ Message được lưu bền vững trên đĩa.
+  - `content_type: application/json`
+  - `correlation_id: 7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b`
+  - `message_id: a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d`
 
 ---
 
-### Bước 5: Kiểm tra Biểu đồ và Message trong Queue trên Web UI
-1. Quay lại tab **Queues** trên [http://localhost:15672](http://localhost:15672).
-2. **Quan sát số lượng:**
-   - Queue **`order.process.queue`**: Cột **Ready** tăng lên `+1`.
-   - Queue **`order.notification.queue`**: Cột **Ready** tăng lên `+1` (vì routing key `order.created` khớp với binding `order.*`).
-3. Bấm vào hàng đợi **`order.process.queue`**:
-   - Kéo xuống phần **Get messages**:
-     - **Messages:** Nhập `1`
-     - **Requeue:** Chọn `Yes` (để không làm mất message sau khi đọc)
-     - Bấm nút **Get Message(s)**.
-4. **Kiểm tra Payload và Headers:**
-   - Quan sát thấy đầy đủ thuộc tính bền vững:
-     - `delivery_mode: 2` (Persistent)
-     - `content_type: application/json`
-     - `correlation_id: <OrderId>`
-     - `app_id: OrderApi`
-     - Header `x-source-service: OrderApi`
-   - **Payload JSON:**
-     ```json
-     {
-       "eventId": "...",
-       "correlationId": "b8d6f512-...",
-       "eventType": "OrderCreatedEvent",
-       "sourceService": "OrderApi",
-       "data": {
-         "orderId": "b8d6f512-...",
-         "customerName": "Nguyễn Văn An",
-         "tableNumber": "Bàn 01",
-         "totalAmount": 130000.0,
-         "status": 0,
-         "items": [
-           { "menuItemId": 1, "name": "Phở Bò Tái Nạm", "unitPrice": 65000.0, "quantity": 2 }
-         ]
-       }
-     }
-     ```
+## 4. Kiểm chứng Dead Letter Queue (DLQ)
 
----
-
-### Bước 6: Kiểm chứng Tính Bền Bỉ khi Khởi động lại Broker (Durability Test)
-1. Đảm bảo trong queue `order.process.queue` đang có ít nhất 1 message ở trạng thái `Ready`.
-2. Khởi động lại container RabbitMQ:
-   ```powershell
-   docker restart food_order_rabbitmq
-   ```
-3. Sau khi container khởi động lại xong, tải lại trang Web Management:
-   - **Kết quả:** Cả 3 queues và toàn bộ số lượng message `Ready` vẫn nguyên vẹn 100%, chứng minh cờ `durable: true` và `delivery_mode: 2` đã hoạt động chính xác!
+Khi gửi một thông điệp lỗi hoặc cố tình kích hoạt `basicNack` với `requeue = false`:
+1. Thông điệp bị loại khỏi `queue.process.queue`.
+2. RabbitMQ tự động đẩy message sang Dead Letter Exchange `clinic.appointment.dlx` với routing key `queue.failed`.
+3. Message xuất hiện an toàn trong `queue.dlq`.
+4. Queue chính tiếp tục hoạt động bình thường mà không bị nghẽn (No blocking).

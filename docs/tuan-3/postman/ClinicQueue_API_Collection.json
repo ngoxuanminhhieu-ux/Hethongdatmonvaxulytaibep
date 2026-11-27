@@ -1,0 +1,507 @@
+{
+  "info": {
+    "_postman_id": "a9b8c7d6-e5f4-4321-abcd-1234567890ab",
+    "name": "Clinic Queue Management System - Topic 09",
+    "description": "Collection kiểm thử tự động toàn diện hệ thống Đặt lịch khám và Quản lý hàng đợi (Đề tài 09). Hỗ trợ kiểm thử Doctors, TimeSlots, Appointments, Queue Operations, SignalR và RabbitMQ Diagnostics.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5001",
+      "type": "string"
+    },
+    {
+      "key": "doctorId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "slotId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "appointmentId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Doctors & TimeSlots",
+      "item": [
+        {
+          "name": "1.1 Get All Doctors",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/doctors",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "doctors"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Response is an array of doctors', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.be.an('array');",
+                  "    pm.expect(json.length).to.be.above(0);",
+                  "    if (json.length > 0) {",
+                  "        pm.collectionVariables.set('doctorId', json[0].id);",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 Filter Doctors by Specialty",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/doctors?specialty=Tim mạch",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "doctors"],
+              "query": [
+                {
+                  "key": "specialty",
+                  "value": "Tim mạch"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('All returned doctors have specialty Tim mach', function () {",
+                  "    var json = pm.response.json();",
+                  "    json.forEach(function(d) {",
+                  "        pm.expect(d.specialty.toLowerCase()).to.include('tim');",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.3 Get Doctor Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/doctors/{{doctorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "doctors", "{{doctorId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Doctor object has required fields', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('name');",
+                  "    pm.expect(json).to.have.property('roomNumber');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.4 Get Doctor Time Slots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/doctors/{{doctorId}}/slots",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "doctors", "{{doctorId}}", "slots"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Slots array returned with availability', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.be.an('array');",
+                  "    if (json.length > 0) {",
+                  "        pm.collectionVariables.set('slotId', json[0].id);",
+                  "        pm.expect(json[0]).to.have.property('availableSpots');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.5 Create New Doctor",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"BS. CKII Đặng Minh Trí\",\n  \"specialty\": \"Chấn thương chỉnh hình\",\n  \"roomNumber\": \"P.502\",\n  \"phone\": \"0944556677\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/doctors",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "doctors"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 Created', function () { pm.response.to.have.status(201); });",
+                  "pm.test('Doctor created has ID', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Appointments",
+      "item": [
+        {
+          "name": "2.1 Create Appointment (Book Slot & Request Queue Number)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Trần Hoàng Long\",\n  \"phone\": \"0988776655\",\n  \"identityNumber\": \"079200004321\",\n  \"dateOfBirth\": \"1992-08-20\",\n  \"gender\": \"Nam\",\n  \"doctorId\": {{doctorId}},\n  \"timeSlotId\": {{slotId}},\n  \"symptoms\": \"Đau thắt ngực khi leo cầu thang\",\n  \"notes\": \"Bệnh nhân tiền sử hen phế quản nhẹ\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "appointments"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 Created', function () { pm.response.to.have.status(201); });",
+                  "var json = pm.response.json();",
+                  "pm.test('Status is Pending', function () { pm.expect(json.status).to.eql('Pending'); });",
+                  "pm.collectionVariables.set('appointmentId', json.appointmentId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.2 Get Appointment Detail & History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/appointments/{{appointmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "appointments", "{{appointmentId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('Contains history timeline', function () {",
+                  "    pm.expect(json).to.have.property('history');",
+                  "    pm.expect(json.history).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2.3 Cancel Appointment",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/appointments/{{appointmentId}}?reason=Bận đột xuất",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "appointments", "{{appointmentId}}"],
+              "query": [
+                {
+                  "key": "reason",
+                  "value": "Bận đột xuất"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('Cancelled status confirmed', function () { pm.expect(json.status).to.eql('Cancelled'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Queues & Clinic Operations",
+      "item": [
+        {
+          "name": "3.1 Get Clinic Queue Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/queues/{{doctorId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "queues", "{{doctorId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('Queue has totalWaiting and waitingList', function () {",
+                  "    pm.expect(json).to.have.property('totalWaiting');",
+                  "    pm.expect(json).to.have.property('waitingList');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.2 Call Next Patient",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"changedBy\": \"BS. CKII Nguyễn Văn A\",\n  \"notes\": \"Bác sĩ gọi số tiếp theo vào phòng\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/queues/{{doctorId}}/next",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "queues", "{{doctorId}}", "next"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () { pm.response.to.have.status(200); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.3 Complete Current Patient",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"changedBy\": \"BS. CKII Nguyễn Văn A\",\n  \"notes\": \"Khám bệnh hoàn tất, kê đơn thuốc về nhà\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/queues/{{doctorId}}/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "queues", "{{doctorId}}", "complete"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400 if no active serving', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.4 Mark Patient No Show",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"changedBy\": \"Y tá trực phòng\",\n  \"notes\": \"Đã gọi loa 3 lần nhưng bệnh nhân không có mặt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/queues/{{doctorId}}/noshow",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "queues", "{{doctorId}}", "noshow"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 or 400 if no active serving', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. RabbitMQ Diagnostics",
+      "item": [
+        {
+          "name": "4.1 RabbitMQ Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rabbitmq/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rabbitmq", "health"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('Status is Healthy', function () { pm.expect(json.status).to.eql('Healthy'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.2 RabbitMQ Topology Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rabbitmq/topology",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rabbitmq", "topology"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('Exchanges and Queues configured', function () {",
+                  "    pm.expect(json).to.have.property('exchanges');",
+                  "    pm.expect(json).to.have.property('queues');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4.3 RabbitMQ Test Publish",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routingKey\": \"appointment.requested\",\n  \"customMessage\": {\n    \"test\": \"Hello from Postman\",\n    \"timestamp\": \"2026-11-27T14:30:00Z\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rabbitmq/test-publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rabbitmq", "test-publish"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 OK', function () { pm.response.to.have.status(200); });",
+                  "var json = pm.response.json();",
+                  "pm.test('Success is true', function () { pm.expect(json.success).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

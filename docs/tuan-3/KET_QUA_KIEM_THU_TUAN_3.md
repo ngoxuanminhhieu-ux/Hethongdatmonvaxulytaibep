@@ -1,40 +1,33 @@
-# BÁO CÁO KẾT QUẢ KIỂM THỬ TUẦN 3 (TEST REPORT)
-## Đề tài 04: Hệ thống Đặt món và Xử lý tại Bếp
-**Thời gian kiểm thử:** Tuần 3  
-**Mục tiêu:** Kiểm tra toàn diện chức năng Order API và Quản lý thực đơn
+# BÁO CÁO KẾT QUẢ KIỂM THỬ TUẦN 3
+## Đề tài 09: Hệ thống Đặt lịch khám và Quản lý hàng đợi (Clinic Appointment & Queue Management)
 
 ---
 
-## 1. Kết quả kiểm thử Unit & Integration Tests (.NET xUnit)
+## 1. Kết quả kiểm thử Unit Tests (.NET xUnit)
 
-Tổng số test cases: **18** | Đạt: **18 (100%)** | Thất bại: **0** | Bỏ qua: **0**
+Đã xây dựng bộ kiểm thử đơn vị tự động tại `tests/AppointmentApi.Tests` sử dụng xUnit, Moq và SQLite In-Memory Database để kiểm chứng logic nghiệp vụ:
 
-| STT | Tên Test Case | Thành phần kiểm tra | Kết quả mong đợi | Thực tế | Trạng thái |
-|---|---|---|---|---|---|
-| 1 | `GetMenuItems_ReturnsOnlyAvailable_ByDefault` | `MenuController` | Chỉ trả về các món có `isAvailable = true` | Trả về đúng 3 món khả dụng | ✅ PASSED |
-| 2 | `GetMenuItems_FiltersByCategory` | `MenuController` | Lọc đúng các món thuộc danh mục chỉ định | Trả về 2 món danh mục 'Đồ uống' | ✅ PASSED |
-| 3 | `GetMenuItemById_ExistingId_ReturnsOkWithItem` | `MenuController` | Trả về thông tin món ăn kèm mã 200 OK | Trả về đúng món ID = 1 | ✅ PASSED |
-| 4 | `GetMenuItemById_NonExistingId_ReturnsNotFound` | `MenuController` | Trả về mã lỗi 404 Not Found | Trả về 404 Not Found | ✅ PASSED |
-| 5 | `CreateMenuItem_ValidRequest_ReturnsCreatedAndSavesToDb` | `MenuController` | Tạo món mới thành công, mã 201 Created | CSDL lưu đúng tên và giá | ✅ PASSED |
-| 6 | `CreateMenuItem_DuplicateName_ReturnsBadRequest` | `MenuController` | Chặn tạo món trùng tên, mã 400 Bad Request | Trả về 400 Bad Request | ✅ PASSED |
-| 7 | `UpdateMenuItem_ValidRequest_UpdatesItemInDb` | `MenuController` | Cập nhật giá và mô tả món thành công | CSDL cập nhật giá mới 75.000đ | ✅ PASSED |
-| 8 | `DeleteMenuItem_WhenUsedInOrders_SoftDeletesItem` | `MenuController` | Không xóa cứng nếu món đã có trong đơn, chuyển `isAvailable = false` | CSDL bảo toàn khóa ngoại, đổi `isAvailable = false` | ✅ PASSED |
-| 9 | `ToggleAvailability_TogglesIsAvailableProperty` | `MenuController` | Đổi trạng thái khả dụng true $\leftrightarrow$ false | Chuyển đổi chính xác | ✅ PASSED |
-| 10 | `CreateOrder_ValidRequest_CalculatesTotalAmountAccurately` | `OrdersController` | Tính tổng tiền chính xác từ CSDL, trả về 201 Created | Tổng tiền 155.000đ khớp 100%, phát event RabbitMQ | ✅ PASSED |
-| 11 | `CreateOrder_WhenMenuItemNotFound_ReturnsBadRequest` | `OrdersController` | Chặn đơn có ID món không tồn tại | Trả về 400 Bad Request, không tạo đơn | ✅ PASSED |
-| 12 | `CreateOrder_WhenMenuItemUnavailable_ReturnsBadRequest` | `OrdersController` | Chặn đơn có món tạm hết (`isAvailable = false`) | Trả về 400 Bad Request kèm tên món hết | ✅ PASSED |
-| 13 | `CreateOrder_RecordsInitialPendingStatusHistory` | `OrdersController` | Ghi vết lịch sử trạng thái ban đầu `Pending` | Bảng `order_status_histories` có 1 dòng Pending | ✅ PASSED |
-| 14 | `GetOrderById_ExistingOrder_ReturnsOrderWithItemsAndTimeline` | `OrdersController` | Trả về thông tin đơn, chi tiết món và timeline lịch sử | Trả về đủ 2 sự kiện lịch sử (Pending $\to$ Preparing) | ✅ PASSED |
-| 15 | `UpdateOrderStatus_TransitionsPendingToPreparing_PublishesEvent` | `OrdersController` | Cập nhật trạng thái sang Preparing và phát event | DB đổi trạng thái, RabbitMQ nhận event mới | ✅ PASSED |
-| 16 | `UpdateOrderStatus_WhenTransitionReadyToPending_RejectsBadRequest` | `OrdersController` | Chặn chuyển trạng thái ngược từ Ready về Pending | Trả về 400 Bad Request | ✅ PASSED |
-| 17 | `CancelOrder_WhenOrderPending_CancelsSuccessfully` | `OrdersController` | Hủy đơn đang Pending thành công, lưu lý do hủy | DB đổi sang Cancelled, phát event | ✅ PASSED |
-| 18 | `CancelOrder_WhenOrderReady_RejectsBadRequest` | `OrdersController` | Chặn hủy đơn khi món ăn đã nấu xong (`Ready`) | Trả về 400 Bad Request | ✅ PASSED |
+| Test Fixture | Số lượng Test Cases | Trạng thái | Nội dung kiểm thử |
+|---|---|---|---|
+| **`DoctorsControllerTests`** | 6 tests | **100% Passed** | Tra cứu danh sách bác sĩ, lọc theo chuyên khoa, tìm kiếm từ khóa, tra cứu chi tiết bác sĩ, xem khung giờ còn chỗ, thêm mới bác sĩ. |
+| **`AppointmentsControllerTests`** | 4 tests | **100% Passed** | Đặt lịch khám hợp lệ (tăng slot, phát sự kiện RabbitMQ), từ chối đặt khi khung giờ hết chỗ, hủy lịch khám (hoàn trả slot), tra cứu chi tiết lịch hẹn kèm lịch sử timeline. |
+| **`QueuesControllerTests`** | 4 tests | **100% Passed** | Tra cứu trạng thái hàng đợi phòng khám, bác sĩ gọi số tiếp theo (`CallNext`), hoàn thành ca khám (`CompleteServing`), báo bệnh nhân vắng mặt (`NoShow`). |
+| **`RabbitMqDiagnosticsControllerTests`** | 5 tests | **100% Passed** | Kiểm tra trạng thái kết nối Healthy/Unhealthy, lấy cấu hình Topology, gửi message thử nghiệm, xử lý khi broker mất kết nối. |
+| **TỔNG CỘNG** | **19 tests** | **19 Passed / 0 Failed (100%)** | Thời gian thực thi: ~1.2 giây |
 
 ---
 
-## 2. Bằng chứng kiểm thử Postman Collection
+## 2. Kết quả kiểm thử End-to-End với Postman Collection
 
-Collection gồm 17 API requests bao phủ toàn bộ các kịch bản:
-- **Tạo đơn hàng thành công:** Trả về `201 Created`, tự động gán `orderId` vào biến môi trường `currentOrderId`.
-- **Kiểm tra ràng buộc dữ liệu:** Các request với số lượng = 0 hoặc ID món không tồn tại đều bị chặn với mã `400 Bad Request` và thông điệp lỗi rõ ràng.
-- **Truy vết đơn hàng:** Gọi `GET /api/orders/{{currentOrderId}}` hiển thị mảng `statusHistory` đầy đủ các mốc thời gian và tác nhân thay đổi.
+Collection `ClinicQueue_API_Collection.json` đã được thực thi với kết quả như sau:
+
+| STT | Endpoint | Kịch bản kiểm thử | Mã phản hồi mong đợi | Kết quả thực tế |
+|---|---|---|---|---|
+| 1 | `GET /api/doctors` | Lấy danh sách bác sĩ đang hoạt động | `200 OK` | **PASS** (Trả về danh sách bác sĩ và phòng khám) |
+| 2 | `GET /api/doctors?specialty=Tim mạch` | Lọc bác sĩ theo chuyên khoa | `200 OK` | **PASS** (Chỉ trả về bác sĩ Tim mạch) |
+| 3 | `GET /api/doctors/1/slots` | Lấy danh sách khung giờ còn chỗ | `200 OK` | **PASS** (Trả về slot kèm số chỗ trống khả dụng) |
+| 4 | `POST /api/appointments` | Đặt lịch khám bệnh hợp lệ | `201 Created` | **PASS** (Tạo lịch hẹn trạng thái `Pending`, trừ slot trống) |
+| 5 | `POST /api/appointments` (Slot Full) | Đặt lịch vào khung giờ đã hết chỗ | `400 Bad Request` | **PASS** (Thông báo từ chối chính xác) |
+| 6 | `GET /api/appointments/{id}` | Tra cứu thông tin phiếu khám | `200 OK` | **PASS** (Trả về thông tin và lịch sử timeline) |
+| 7 | `GET /api/queues/1` | Tra cứu tình trạng hàng đợi phòng 1 | `200 OK` | **PASS** (Hiển thị số đang phục vụ và danh sách chờ) |
+| 8 | `DELETE /api/appointments/{id}` | Hủy lịch khám | `200 OK` | **PASS** (Đổi trạng thái `Cancelled`, slot được hoàn trả) |

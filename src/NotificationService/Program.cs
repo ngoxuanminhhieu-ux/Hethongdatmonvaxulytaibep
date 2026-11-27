@@ -10,16 +10,16 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new()
     {
-        Title = "Notification Realtime Service",
+        Title = "Clinic Queue Notification Service - Đề tài 09",
         Version = "v1",
-        Description = "SignalR Realtime Hub & RabbitMQ Consumer - Đề tài 04 môn PTUDPT"
+        Description = "SignalR Realtime Hub & RabbitMQ Consumer - Cập nhật tiến độ hàng đợi phòng khám theo thời gian thực"
     });
 });
 
 // Configure SignalR
 builder.Services.AddSignalR();
 
-// Configure CORS for Web Client SignalR connections
+// Configure CORS for Web Client
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowClient", policy =>
@@ -47,13 +47,13 @@ app.UseCors("AllowClient");
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<OrderNotificationHub>("/hubs/order-notification");
+app.MapHub<QueueNotificationHub>("/hubs/queue-notification");
 
 app.MapGet("/", () => Results.Ok(new
 {
-    service = "Notification Service",
+    service = "Clinic Queue Notification Service",
     status = "Running",
-    hubUrl = "/hubs/order-notification",
+    hubUrl = "/hubs/queue-notification",
     swaggerUrl = "/swagger"
 }));
 

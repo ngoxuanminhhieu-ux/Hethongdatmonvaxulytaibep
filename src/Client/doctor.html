@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Màn hình Bác sĩ - Quản lý Hàng đợi Khám (Đề tài 09)</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+</head>
+<body>
+
+    <header>
+        <h1>👨‍⚕️ Màn Hình Phòng Khám Bác Sĩ (Clinic Queue Display)</h1>
+        <div class="nav-links">
+            <a href="index.html">🧑‍🦱 Bệnh nhân đặt lịch</a>
+            <a href="doctor.html" class="active">👨‍⚕️ Phòng khám Bác sĩ</a>
+        </div>
+    </header>
+
+    <div class="container" style="max-width: 1300px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <label for="doctorSelect" style="font-weight: 600;">Chọn Bác sĩ / Phòng khám:</label>
+                <select id="doctorSelect" class="form-control" style="width: auto; min-width: 280px;" onchange="onDoctorChanged()">
+                    <option value="">-- Tải danh sách bác sĩ... --</option>
+                </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span id="realtime-dot" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #16a34a;"></span>
+                <span id="realtime-text" style="font-size: 0.85rem; color: #16a34a; font-weight: 600;">Realtime Connected</span>
+                <button class="btn btn-outline" onclick="loadQueueStatus()" style="padding: 0.4rem 0.8rem;">🔄 Làm mới</button>
+            </div>
+        </div>
+
+        <div class="grid" style="grid-template-columns: 1fr 1.3fr;">
+            <!-- Cột trái: Lượt đang phục vụ & Bộ nút bấm điều khiển -->
+            <div>
+                <div class="card">
+                    <div class="card-title">📢 Lượt Khám Hiện Tại</div>
+                    <div class="queue-board-serving">
+                        <div style="font-size: 1rem; color: #047857; font-weight: 600;">ĐANG KHÁM: SỐ THỨ TỰ</div>
+                        <div id="serving-number-big" class="serving-display">-</div>
+                        <div id="serving-patient-name" style="font-size: 1.25rem; font-weight: 700; color: #0f172a;">Chưa có bệnh nhân</div>
+                        <div id="serving-room-name" style="font-size: 0.9rem; color: #64748b; margin-top: 0.3rem;">-</div>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <button class="btn btn-primary" style="padding: 1rem; font-size: 1.1rem;" onclick="callNext()">
+                            📢 GỌI LƯỢT TIẾP THEO
+                        </button>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                            <button class="btn btn-success" onclick="completeServing()">
+                                ✅ Hoàn thành khám
+                            </button>
+                            <button class="btn btn-danger" onclick="markNoShow()">
+                                ❌ Báo vắng mặt
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cột phải: Danh sách bệnh nhân đang xếp hàng chờ -->
+            <div>
+                <div class="card">
+                    <div class="card-title">
+                        <span>📋 Danh sách Bệnh nhân đang chờ</span>
+                        <span id="badge-waiting-count" class="badge badge-confirmed" style="margin-left: auto;">0 đang chờ</span>
+                    </div>
+
+                    <div style="overflow-x: auto;">
+                        <table class="waiting-table">
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>Họ và tên</th>
+                                    <th>Khung giờ hẹn</th>
+                                    <th>Trạng thái</th>
+                                </tr>
+                            </thead>
+                            <tbody id="waiting-table-body">
+                                <tr>
+                                    <td colspan="4" style="text-align: center; color: #94a3b8; padding: 2rem;">Chưa có bệnh nhân nào trong hàng đợi.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/doctor.js"></script>
+</body>
+</html>

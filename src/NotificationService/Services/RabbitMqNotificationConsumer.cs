@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.SignalR;
 using NotificationService.Hubs;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
-using Shared.Contracts;
 
 namespace NotificationService.Services;
 
@@ -12,17 +11,17 @@ public class RabbitMqNotificationConsumer : BackgroundService
 {
     private readonly ILogger<RabbitMqNotificationConsumer> _logger;
     private readonly IConfiguration _configuration;
-    private readonly IHubContext<OrderNotificationHub> _hubContext;
+    private readonly IHubContext<QueueNotificationHub> _hubContext;
     private IConnection? _connection;
     private IModel? _channel;
 
-    private const string ExchangeName = "food.order.exchange";
-    private const string QueueName = "order.notification.queue";
+    private const string ExchangeName = "clinic.appointment.exchange";
+    private const string QueueName = "queue.notification.queue";
 
     public RabbitMqNotificationConsumer(
         ILogger<RabbitMqNotificationConsumer> logger,
         IConfiguration configuration,
-        IHubContext<OrderNotificationHub> hubContext)
+        IHubContext<QueueNotificationHub> hubContext)
     {
         _logger = logger;
         _configuration = configuration;
@@ -31,7 +30,7 @@ public class RabbitMqNotificationConsumer : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Notification Consumer đang khởi động...");
+        _logger.LogInformation("Notification Consumer (Clinic Queue) đang khởi động...");
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -42,7 +41,7 @@ public class RabbitMqNotificationConsumer : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("Notification Service chưa kết nối được RabbitMQ: {Message}. Đang thử lại sau 5 giây...", ex.Message);
+                _logger.LogWarning("Chưa kết nối được RabbitMQ: {Message}. Đang thử lại sau 5 giây...", ex.Message);
                 await Task.Delay(5000, stoppingToken);
             }
         }
@@ -58,40 +57,52 @@ public class RabbitMqNotificationConsumer : BackgroundService
 
                 try
                 {
-                    _logger.LogInformation(">>> [NOTIFICATION SERVICE] Nhận sự kiện với routing key '{Key}'", routingKey);
+                    _logger.LogInformation(">>> [NOTIFICATION SERVICE] Nhận sự kiện RabbitMQ với RoutingKey '{Key}'", routingKey);
 
                     using var doc = JsonDocument.Parse(message);
                     var root = doc.RootElement;
 
-                    string orderId = string.Empty;
+                    int? doctorId = null;
+                    string? appointmentId = null;
 
-                    if (root.TryGetProperty("data", out var dataElement) &&
-                        dataElement.TryGetProperty("orderId", out var idElement))
+                    if (root.TryGetProperty("data", out var dataElement))
                     {
-                        orderId = idElement.GetString() ?? string.Empty;
+                        if (dataElement.TryGetProperty("doctorId", out var docIdProp))
+                        {
+                            doctorId = docIdProp.GetInt32();
+                        }
+
+                        if (dataElement.TryGetProperty("appointmentId", out var apptIdProp))
+                        {
+                            appointmentId = apptIdProp.GetString();
+                        }
                     }
 
-                    // 1. Gửi realtime thông báo cho đúng khách hàng đang theo dõi đơn đó
-                    if (!string.IsNullOrEmpty(orderId))
+                    // 1. Nếu có doctorId: Gửi cập nhật realtime cho màn hình phòng khám và tất cả bệnh nhân đang chờ bác sĩ đó
+                    if (doctorId.HasValue)
                     {
-                        var groupName = $"order-{orderId}";
-                        await _hubContext.Clients.Group(groupName).SendAsync("ReceiveOrderStatusUpdate", new
+                        var groupName = $"doctor-queue-{doctorId.Value}";
+                        await _hubContext.Clients.Group(groupName).SendAsync("ReceiveQueueUpdate", new
                         {
                             routingKey,
                             rawMessage = message,
                             timestamp = DateTime.UtcNow
                         });
-
-                        _logger.LogInformation("<<< Đã đẩy thông báo Realtime cho Group '{GroupName}'", groupName);
+                        _logger.LogInformation("<<< Đã đẩy thông báo Realtime cho Nhóm Bác sĩ '{GroupName}'", groupName);
                     }
 
-                    // 2. Gửi realtime cho màn hình bếp để cập nhật danh sách
-                    await _hubContext.Clients.Group("kitchen-dashboard").SendAsync("ReceiveKitchenUpdate", new
+                    // 2. Nếu có appointmentId: Gửi cập nhật realtime cho đúng bệnh nhân đang theo dõi lịch hẹn đó
+                    if (!string.IsNullOrEmpty(appointmentId))
                     {
-                        routingKey,
-                        rawMessage = message,
-                        timestamp = DateTime.UtcNow
-                    });
+                        var apptGroup = $"appointment-{appointmentId}";
+                        await _hubContext.Clients.Group(apptGroup).SendAsync("ReceiveAppointmentStatus", new
+                        {
+                            routingKey,
+                            rawMessage = message,
+                            timestamp = DateTime.UtcNow
+                        });
+                        _logger.LogInformation("<<< Đã đẩy thông báo Realtime cho Bệnh nhân '{Group}'", apptGroup);
+                    }
 
                     _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
                 }
@@ -134,8 +145,8 @@ public class RabbitMqNotificationConsumer : BackgroundService
         _channel.ExchangeDeclare(ExchangeName, ExchangeType.Topic, durable: true, autoDelete: false);
         _channel.QueueDeclare(QueueName, durable: true, exclusive: false, autoDelete: false);
 
-        // Lắng nghe tất cả các sự kiện order: order.created, order.status.changed, ...
-        _channel.QueueBind(QueueName, ExchangeName, "order.*");
+        _channel.QueueBind(QueueName, ExchangeName, "queue.*");
+        _channel.QueueBind(QueueName, ExchangeName, "appointment.*");
 
         _logger.LogInformation("Đã khởi tạo xong RabbitMQ Topology cho Notification Service.");
     }

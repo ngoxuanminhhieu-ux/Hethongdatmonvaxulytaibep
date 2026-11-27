@@ -1,96 +1,131 @@
 -- ============================================================================
--- ĐỀ TÀI 04: HỆ THỐNG ĐẶT MÓN VÀ XỬ LÝ TẠI BẾP (FOOD ORDER & KITCHEN SYSTEM)
+-- ĐỀ TÀI 09: HỆ THỐNG ĐẶT LỊCH KHÁM VÀ QUẢN LÝ HÀNG ĐỢI
+-- (CLINIC APPOINTMENT & QUEUE MANAGEMENT SYSTEM)
 -- Script khởi tạo CSDL PostgreSQL và dữ liệu mẫu (Seed Data)
 -- ============================================================================
 
--- Bật extension tạo UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Xóa bảng cũ nếu tồn tại (theo thứ tự quan hệ phụ thuộc)
-DROP TABLE IF EXISTS order_status_histories CASCADE;
-DROP TABLE IF EXISTS order_details CASCADE;
-DROP TABLE IF EXISTS orders CASCADE;
-DROP TABLE IF EXISTS menu_items CASCADE;
-DROP TABLE IF EXISTS customers CASCADE;
+-- Xóa bảng cũ theo thứ tự quan hệ
+DROP TABLE IF EXISTS queue_logs CASCADE;
+DROP TABLE IF EXISTS appointments CASCADE;
+DROP TABLE IF EXISTS patients CASCADE;
+DROP TABLE IF EXISTS time_slots CASCADE;
+DROP TABLE IF EXISTS doctors CASCADE;
 
--- 1. BẢNG KHÁCH HÀNG (customers)
-CREATE TABLE customers (
+-- 1. BẢNG BÁC SĨ / PHÒNG KHÁM (doctors)
+CREATE TABLE doctors (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    specialty VARCHAR(100) NOT NULL,
+    room_number VARCHAR(20) NOT NULL,
     phone VARCHAR(20),
-    table_number VARCHAR(20) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. BẢNG THỰC ĐƠN (menu_items)
-CREATE TABLE menu_items (
+-- 2. BẢNG KHUNG GIỜ KHÁM (time_slots)
+CREATE TABLE time_slots (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(150) NOT NULL,
-    description TEXT,
-    price NUMERIC(12, 2) NOT NULL CHECK (price >= 0),
-    image_url VARCHAR(500),
-    category VARCHAR(50) NOT NULL,
+    doctor_id INT NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
+    slot_date DATE NOT NULL,
+    start_time VARCHAR(10) NOT NULL,
+    end_time VARCHAR(10) NOT NULL,
+    max_capacity INT NOT NULL DEFAULT 5,
+    current_bookings INT NOT NULL DEFAULT 0,
     is_available BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. BẢNG ĐƠN ĐẶT HÀNG (orders)
-CREATE TABLE orders (
+-- 3. BẢNG BỆNH NHÂN (patients)
+CREATE TABLE patients (
+    id SERIAL PRIMARY KEY,
+    full_name VARCHAR(120) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    identity_number VARCHAR(30),
+    date_of_birth DATE,
+    gender VARCHAR(10),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. BẢNG LỊCH HẸN & SỐ THỨ TỰ KHÁM (appointments)
+CREATE TABLE appointments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    customer_id INT REFERENCES customers(id) ON DELETE SET NULL,
-    table_number VARCHAR(20) NOT NULL,
-    total_amount NUMERIC(12, 2) NOT NULL DEFAULT 0.00 CHECK (total_amount >= 0),
-    status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Preparing', 'Ready', 'Cancelled')),
+    patient_id INT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    doctor_id INT NOT NULL REFERENCES doctors(id) ON DELETE RESTRICT,
+    time_slot_id INT NOT NULL REFERENCES time_slots(id) ON DELETE RESTRICT,
+    queue_number INT,
+    status VARCHAR(20) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Confirmed', 'Serving', 'Completed', 'Cancelled', 'NoShow')),
+    symptoms TEXT,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. BẢNG CHI TIẾT ĐƠN HÀNG (order_details)
-CREATE TABLE order_details (
+-- 5. BẢNG NHẬT KÝ HÀNG ĐỢI (queue_logs)
+CREATE TABLE queue_logs (
     id SERIAL PRIMARY KEY,
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    menu_item_id INT NOT NULL REFERENCES menu_items(id),
-    unit_price NUMERIC(12, 2) NOT NULL CHECK (unit_price >= 0),
-    quantity INT NOT NULL CHECK (quantity > 0),
-    subtotal NUMERIC(12, 2) NOT NULL CHECK (subtotal >= 0),
-    item_notes VARCHAR(255)
-);
-
--- 5. BẢNG LỊCH SỬ THAY ĐỔI TRẠNG THÁI (order_status_histories)
-CREATE TABLE order_status_histories (
-    id SERIAL PRIMARY KEY,
-    order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    doctor_id INT NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
+    appointment_id UUID REFERENCES appointments(id) ON DELETE SET NULL,
+    queue_number INT NOT NULL,
     from_status VARCHAR(20),
     to_status VARCHAR(20) NOT NULL,
+    action VARCHAR(50) NOT NULL,
     changed_by VARCHAR(50) NOT NULL,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- CÁC CHỈ MỤC TỐI ƯU TRUY VẤN
-CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_orders_customer_id ON orders(customer_id);
-CREATE INDEX idx_order_details_order_id ON order_details(order_id);
-CREATE INDEX idx_order_status_histories_order_id ON order_status_histories(order_id);
+-- CHỈ MỤC TỐI ƯU TRUY VẤN PHÂN TÁN
+CREATE INDEX idx_appointments_doctor_status ON appointments(doctor_id, status);
+CREATE INDEX idx_appointments_queue_number ON appointments(doctor_id, queue_number);
+CREATE INDEX idx_time_slots_doctor_date ON time_slots(doctor_id, slot_date);
+CREATE INDEX idx_queue_logs_doctor_id ON queue_logs(doctor_id);
 
 -- ============================================================================
 -- DỮ LIỆU MẪU (SEED DATA)
 -- ============================================================================
 
--- Khách hàng mẫu
-INSERT INTO customers (name, phone, table_number) VALUES
-('Nguyễn Văn An', '0901234567', 'Bàn 01'),
-('Trần Thị Bình', '0912345678', 'Bàn 02'),
-('Lê Hoàng Nam', '0987654321', 'Bàn 05');
+-- Bác sĩ mẫu
+INSERT INTO doctors (name, specialty, room_number, phone, is_active) VALUES
+('BS. CKII Nguyễn Văn Hùng', 'Tim mạch', 'Phòng 101', '0901112233', true),
+('ThS. BS Trần Mai Lan', 'Nhi khoa', 'Phòng 102', '0902223344', true),
+('BS. CKI Lê Quang Vinh', 'Tai Mũi Họng', 'Phòng 201', '0903334455', true),
+('BS. Phạm Thị Hương', 'Da liễu', 'Phòng 202', '0904445566', true),
+('ThS. BS Hoàng Tuấn Anh', 'Cơ Xương Khớp', 'Phòng 301', '0905556677', true);
 
--- Danh mục món ăn mẫu
-INSERT INTO menu_items (name, description, price, image_url, category, is_available) VALUES
-('Phở Bò Tái Nạm', 'Bánh phở tươi, thịt bò tái nạm mềm thơm cùng nước dùng hầm xương 24h đậm đà gia truyền', 65000.00, 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=500', 'Món chính', true),
-('Cơm Tấm Sườn Bì Chả', 'Cơm tấm thơm nóng dẻo, sườn nướng mật ong đậm đà, bì thơm và chả trứng hấp dẫn', 60000.00, 'https://images.unsplash.com/photo-1544025162-d76694265947?w=500', 'Món chính', true),
-('Bún Chả Hà Nội', 'Bún tươi, chả miếng nướng than hoa thơm lừng kèm bát nước mắm chua ngọt và rau sống', 55000.00, 'https://images.unsplash.com/photo-1569058242253-92a9c755a0ec?w=500', 'Món chính', true),
-('Bánh Mì Thịt Nướng Đặc Biệt', 'Bánh mì giòn rụm, thịt nướng than hoa, pa-tê béo ngậy, đồ chua và sốt đặc biệt', 35000.00, 'https://images.unsplash.com/photo-1626804475297-41608ea09aeb?w=500', 'Món chính', true),
-('Khoai Tây Chiên Giòn', 'Khoai tây cắt thanh chiên giòn rụm chấm kèm sốt tương cà hoặc sốt phô mai thơm ngậy', 30000.00, 'https://images.unsplash.com/photo-1576107232684-1279f3908594?w=500', 'Khai vị', true),
-('Cà Phê Sữa Đá Sài Gòn', 'Cà phê nguyên chất pha phin truyền thống hòa quyện cùng sữa đặc béo ngậy và đá lạnh', 25000.00, 'https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=500', 'Đồ uống', true),
-('Trà Đào Cam Sả', 'Trà thanh mát kết hợp vị cam thơm dịu, sả cay nhẹ và miếng đào giòn ngọt', 35000.00, 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=500', 'Đồ uống', true),
-('Bánh Flan Caramel', 'Bánh flan mềm mịn, thơm mùi trứng sữa cùng sốt caramel đắng nhẹ thơm ngon', 20000.00, 'https://images.unsplash.com/photo-1528975604071-b4dc52a2d18c?w=500', 'Tráng miệng', true);
+-- Khung giờ khám mẫu cho ngày hôm nay và các ngày tới
+INSERT INTO time_slots (doctor_id, slot_date, start_time, end_time, max_capacity, current_bookings, is_available) VALUES
+-- BS Hùng (Tim mạch)
+(1, CURRENT_DATE, '08:00', '09:00', 5, 0, true),
+(1, CURRENT_DATE, '09:00', '10:00', 5, 0, true),
+(1, CURRENT_DATE, '10:00', '11:00', 5, 0, true),
+(1, CURRENT_DATE, '13:30', '14:30', 5, 0, true),
+(1, CURRENT_DATE, '14:30', '15:30', 5, 0, true),
+(1, CURRENT_DATE + INTERVAL '1 day', '08:00', '09:00', 5, 0, true),
+(1, CURRENT_DATE + INTERVAL '1 day', '09:00', '10:00', 5, 0, true),
+
+-- ThS.BS Lan (Nhi khoa)
+(2, CURRENT_DATE, '08:00', '09:00', 5, 0, true),
+(2, CURRENT_DATE, '09:00', '10:00', 5, 0, true),
+(2, CURRENT_DATE, '10:00', '11:00', 5, 0, true),
+(2, CURRENT_DATE, '13:30', '14:30', 5, 0, true),
+
+-- BS Vinh (Tai Mũi Họng)
+(3, CURRENT_DATE, '08:00', '09:00', 5, 0, true),
+(3, CURRENT_DATE, '09:00', '10:00', 5, 0, true),
+(3, CURRENT_DATE, '13:30', '14:30', 5, 0, true),
+
+-- BS Hương (Da liễu)
+(4, CURRENT_DATE, '08:30', '09:30', 5, 0, true),
+(4, CURRENT_DATE, '09:30', '10:30', 5, 0, true),
+
+-- BS Tuấn Anh (Cơ Xương Khớp)
+(5, CURRENT_DATE, '08:00', '09:00', 5, 0, true),
+(5, CURRENT_DATE, '09:00', '10:00', 5, 0, true);
+
+-- Bệnh nhân mẫu
+INSERT INTO patients (full_name, phone, identity_number, date_of_birth, gender) VALUES
+('Nguyễn Văn An', '0901234567', '079090001234', '1990-05-15', 'Nam'),
+('Trần Thị Bình', '0912345678', '079192005678', '1985-08-20', 'Nữ'),
+('Lê Hoàng Nam', '0987654321', '079201009988', '2001-11-02', 'Nam');

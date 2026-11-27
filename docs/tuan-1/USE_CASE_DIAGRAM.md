@@ -1,124 +1,97 @@
-# BIỂU ĐỒ VÀ ĐẶC TẢ CA SỬ DỤNG (USE CASE DIAGRAM & SPECIFICATION)
-## Đề tài 04: Hệ thống Đặt món và Xử lý tại Bếp
+# BIỂU ĐỒ VÀ ĐẶC TẢ USE CASE HỆ THỐNG
+## Đề tài 09: Hệ thống Đặt lịch khám và Quản lý hàng đợi (Clinic Appointment & Queue Management System)
 
 ---
 
-## 1. Xác định tác nhân (Actors)
-
-1. **Khách hàng (Customer):**
-   - Là người dùng tương tác với hệ thống tại bàn ăn hoặc thiết bị di động.
-   - Thao tác: Xem thực đơn, thêm món vào giỏ, tạo đơn đặt món, theo dõi trạng thái món ăn và nhận thông báo khi món sẵn sàng.
-2. **Nhân viên bếp (Kitchen Staff / Chef):**
-   - Là người trực tiếp tiếp nhận thông tin đơn hàng và chế biến tại bếp.
-   - Thao tác: Quan sát hàng đợi đơn hàng mới, cập nhật trạng thái làm món (`Preparing`, `Ready`, `Cancelled`).
-3. **Hệ thống hàng đợi & thông báo (Message Broker & Notification System):**
-   - Tác nhân hệ thống thực hiện chuyển tiếp thông điệp và kích hoạt gửi sự kiện realtime đến các phiên làm việc.
-
----
-
-## 2. Sơ đồ Use Case Diagram (Mermaid)
+## 1. Biểu đồ Use Case tổng quan (Use Case Diagram)
 
 ```mermaid
 flowchart LR
-    Customer((Khách hàng))
-    KitchenStaff((Nhân viên bếp))
-    BrokerSystem[Hệ thống Message & Realtime]
+    Patient(("Bệnh nhân (Patient)"))
+    Doctor(("Bác sĩ / Y tá (Doctor)"))
+    System(("Queue Worker (System)"))
 
-    subgraph Client_App["Ứng dụng Đặt món & Theo dõi"]
-        UC01["UC-01: Xem thực đơn (Browse Menu)"]
-        UC02["UC-02: Tạo đơn đặt món (Place Order)"]
-        UC03["UC-03: Theo dõi trạng thái đơn (Track Order)"]
-        UC04["UC-04: Nhận thông báo thời gian thực (Receive Realtime Update)"]
+    subgraph ClinicSystem["HỆ THỐNG ĐẶT LỊCH KHÁM & QUẢN LÝ HÀNG ĐỢI"]
+        UC1["1. Tra cứu Bác sĩ & Phòng khám"]
+        UC2["2. Xem Khung giờ còn chỗ (Slots)"]
+        UC3["3. Đặt lịch khám bệnh"]
+        UC4["4. Hủy lịch khám"]
+        UC5["5. Tra cứu Lịch hẹn & Phiếu khám"]
+        UC6["6. Theo dõi tiến độ Hàng đợi Realtime"]
+        
+        UC7["7. Cấp số thứ tự khám tự động"]
+        UC8["8. Gọi số tiếp theo vào khám (Call Next)"]
+        UC9["9. Hoàn thành ca khám (Complete)"]
+        UC10["10. Báo bệnh nhân vắng mặt (No Show)"]
+        UC11["11. Xem màn hình điều phối phòng khám"]
     end
 
-    subgraph Kitchen_App["Màn hình Bếp (Kitchen Display)"]
-        UC05["UC-05: Tiếp nhận đơn từ hàng đợi (Receive Queued Orders)"]
-        UC06["UC-06: Bắt đầu nấu món (Mark as Preparing)"]
-        UC07["UC-07: Hoàn thành món ăn (Mark as Ready)"]
-        UC08["UC-08: Hủy đơn nếu hết món (Cancel Order)"]
-    end
+    %% Patient associations
+    Patient --> UC1
+    Patient --> UC2
+    Patient --> UC3
+    Patient --> UC4
+    Patient --> UC5
+    Patient --> UC6
 
-    %% Customer relationships
-    Customer --> UC01
-    Customer --> UC02
-    Customer --> UC03
-    Customer --> UC04
+    %% Doctor associations
+    Doctor --> UC8
+    Doctor --> UC9
+    Doctor --> UC10
+    Doctor --> UC11
 
-    %% Kitchen Staff relationships
-    KitchenStaff --> UC05
-    KitchenStaff --> UC06
-    KitchenStaff --> UC07
-    KitchenStaff --> UC08
-
-    %% System relationships
-    UC02 -.->|Kích hoạt sự kiện OrderCreated| BrokerSystem
-    BrokerSystem -.->|Phân phối vào queue| UC05
-    UC06 -.->|Kích hoạt sự kiện OrderStatusChanged| BrokerSystem
-    UC07 -.->|Kích hoạt sự kiện OrderStatusChanged| BrokerSystem
-    UC08 -.->|Kích hoạt sự kiện OrderStatusChanged| BrokerSystem
-    BrokerSystem -.->|Push thông báo qua SignalR| UC04
+    %% System background worker
+    UC3 -.->|Đưa yêu cầu vào RabbitMQ| UC7
+    System --> UC7
 ```
 
 ---
 
-## 3. Đặc tả chi tiết các Use Case chính
+## 2. Đặc tả các Use Case chính
 
-### 3.1. UC-02: Tạo đơn đặt món (Place Order)
-- **Actor:** Khách hàng (Customer)
-- **Tiền điều kiện (Pre-conditions):**
-  - Khách hàng đã mở ứng dụng và tải được danh mục món ăn (UC-01).
-  - Có ít nhất một món ăn được chọn trong giỏ hàng với số lượng > 0.
-- **Hậu điều kiện (Post-conditions):**
-  - Đơn hàng được lưu vào PostgreSQL với trạng thái `Pending`.
-  - Sự kiện `OrderCreatedEvent` được gửi lên RabbitMQ Exchange `food.order.exchange`.
-  - Khách hàng nhận được `OrderId` và tự động tham gia nhóm nhận tin realtime của đơn hàng đó.
-- **Luồng sự kiện chính (Basic Flow):**
-  1. Khách hàng bấm nút "Xác nhận đặt món" trên màn hình giỏ hàng.
-  2. Client gửi yêu cầu `POST /api/orders` với danh sách món (`menuItemId`, `quantity`, `notes`) và thông tin khách hàng (`customerName`, `tableNumber`).
-  3. Order API xác thực dữ liệu: kiểm tra món ăn có tồn tại và đang sẵn sàng phục vụ (`is_available = true`).
-  4. Order API tính toán tổng tiền dựa trên giá gốc từ database (tránh việc client giả mạo giá).
-  5. Order API lưu đơn hàng và các dòng chi tiết vào CSDL trong một Transaction.
-  6. Order API ghi log trạng thái ban đầu `Pending` vào `order_status_histories`.
-  7. Order API serialize sự kiện `OrderCreatedEvent` và publish lên RabbitMQ Exchange với routing key `order.created`.
-  8. Order API trả về mã phản hồi `201 Created` kèm thông tin đơn hàng vừa tạo cho Client.
-  9. Client hiển thị thông báo thành công và chuyển sang giao diện theo dõi tiến trình.
-- **Luồng ngoại lệ (Alternative / Exception Flow):**
-  - *Dữ liệu không hợp lệ (món không có hoặc số lượng $\le$ 0):* API trả về `400 Bad Request`, Client hiển thị thông báo lỗi cụ thể.
-  - *RabbitMQ broker tạm thời không khả dụng:* API vẫn lưu đơn vào Database và ghi log cảnh báo lỗi gửi message hoặc lưu vào bảng Outbox để retry sau (Outbox pattern).
-
----
-
-### 3.2. UC-06 & UC-07: Bếp tiếp nhận và cập nhật trạng thái làm món
-- **Actor:** Nhân viên bếp (Kitchen Staff)
-- **Tiền điều kiện:**
-  - Kitchen Worker đã khởi động và kết nối thành công tới queue `order.process.queue`.
-  - Đơn hàng ở trạng thái `Pending` hoặc `Preparing`.
-- **Hậu điều kiện:**
-  - Trạng thái đơn hàng trong CSDL được cập nhật thành `Preparing` hoặc `Ready`.
-  - Lịch sử thay đổi trạng thái được ghi thêm 1 bản ghi mới.
-  - Sự kiện `OrderStatusChangedEvent` được publish lên RabbitMQ với routing key `order.status.changed`.
+### Use Case 1: Đặt lịch khám bệnh (UC3)
+- **Actor chính:** Bệnh nhân (Patient).
+- **Mục tiêu:** Đăng ký lịch khám với bác sĩ chuyên khoa vào một khung giờ cụ thể và gửi yêu cầu cấp số thứ tự vào hệ thống.
+- **Tiền điều kiện:** Bác sĩ còn hoạt động và khung giờ đã chọn còn chỗ trống (`current_bookings < max_capacity`).
 - **Luồng sự kiện chính:**
-  1. Bếp nhìn thấy đơn hàng mới xuất hiện trên giao diện Kitchen Display.
-  2. Bếp bấm nút **"Bắt đầu nấu"** (chuyển sang `Preparing`).
-  3. Yêu cầu cập nhật trạng thái được gửi lên Order API / Kitchen Service.
-  4. Trạng thái trong DB cập nhật thành `Preparing`, ghi log `order_status_histories`.
-  5. Sự kiện `OrderStatusChangedEvent` được phát vào RabbitMQ.
-  6. Khi món ăn nấu xong, đầu bếp bấm nút **"Đã xong"** (chuyển sang `Ready`).
-  7. Trạng thái trong DB cập nhật thành `Ready`, phát sự kiện `OrderStatusChangedEvent`.
-  8. Giao diện bếp chuyển đơn sang cột "Đã hoàn thành".
+  1. Bệnh nhân chọn Bác sĩ và Khung giờ muốn khám.
+  2. Bệnh nhân nhập thông tin cá nhân: Họ tên, Số điện thoại, CCCD, Triệu chứng ban đầu.
+  3. Client gửi request `POST /api/appointments` đến Appointment API.
+  4. Hệ thống kiểm tra điều kiện slot trong DB Transaction.
+  5. Hệ thống tăng số lượng đặt của khung giờ (`current_bookings += 1`), tạo bản ghi lịch hẹn ở trạng thái `Pending`.
+  6. Hệ thống đưa message `AppointmentRequestedEvent` vào RabbitMQ Exchange.
+  7. Hệ thống trả về thông tin lịch hẹn đã tạo (mã `201 Created`).
+- **Luồng ngoại lệ:** Khung giờ đã hết chỗ $\to$ Trả về mã lỗi `400 Bad Request`, thông báo bệnh nhân chọn khung giờ khác.
 
 ---
 
-### 3.3. UC-04: Nhận thông báo thời gian thực (Receive Realtime Update)
-- **Actor:** Khách hàng (Customer) & Notification Service
-- **Tiền điều kiện:**
-  - Client đã kết nối SignalR Hub `http://localhost:5003/hubs/order-notification`.
-  - Client đã tham gia Group theo mã đơn hàng: `JoinOrderGroup(orderId)`.
-- **Luồng sự kiện:**
-  1. Notification Service lắng nghe queue `order.notification.queue`.
-  2. Khi nhận được message `OrderStatusChangedEvent`:
-  3. Notification Service trích xuất `OrderId`, `NewStatus`, `Message`, `Timestamp`.
-  4. Notification Service gọi SignalR Hub: gửi message tới đúng Group `order-{orderId}`.
-  5. Client nhận sự kiện realtime từ SignalR:
-     - Biểu tượng tiến trình tự động nhảy bước (`Pending` $\to$ `Preparing` $\to$ `Ready`).
-     - Hiển thị âm thanh/thông báo pop-up chúc mừng món ăn đã nấu xong.
+### Use Case 2: Cấp số thứ tự khám tự động (UC7)
+- **Actor:** Queue Worker (System Background Service).
+- **Mục tiêu:** Tiếp nhận yêu cầu cấp số từ RabbitMQ và sinh số thứ tự liên tục, không trùng lặp cho từng phòng khám trong ngày.
+- **Tiền điều kiện:** Có message `appointment.requested` trong `queue.process.queue`.
+- **Luồng sự kiện chính:**
+  1. Queue Worker nhận message từ queue.
+  2. Worker truy vấn CSDL để tìm số thứ tự lớn nhất hiện tại của bác sĩ trong ngày: `MAX(queue_number)`.
+  3. Worker tính toán số thứ tự mới: `new_queue_number = (max ?? 0) + 1`.
+  4. Worker cập nhật bản ghi lịch hẹn: `queue_number = new_queue_number`, `status = Confirmed`.
+  5. Worker ghi nhật ký kiểm toán vào `queue_logs`.
+  6. Worker gửi xác nhận ACK (`basicAck`) về RabbitMQ.
+  7. Worker phát sự kiện `QueueNumberAssignedEvent` lên RabbitMQ.
+  8. Notification Service nhận sự kiện và gửi thông báo SignalR đến Client của bệnh nhân.
+
+---
+
+### Use Case 3: Gọi số thứ tự tiếp theo vào phòng khám (UC8)
+- **Actor:** Bác sĩ / Y tá phụ trách phòng khám (Doctor).
+- **Mục tiêu:** Gọi bệnh nhân tiếp theo trong danh sách chờ vào phòng khám.
+- **Tiền điều kiện:** Bác sĩ đang xem màn hình điều phối phòng khám (`doctor.html`).
+- **Luồng sự kiện chính:**
+  1. Bác sĩ bấm nút **"Gọi số tiếp theo"**.
+  2. Client gửi request `POST /api/queues/{doctorId}/next` đến Appointment API.
+  3. Nếu có ca khám đang dở dang (`Serving`), hệ thống tự động hoàn thành ca đó (`Completed`).
+  4. Hệ thống tìm bệnh nhân kế tiếp có số thứ tự nhỏ nhất ở trạng thái `Confirmed`.
+  5. Hệ thống cập nhật trạng thái của bệnh nhân này thành `Serving`.
+  6. Hệ thống ghi nhật ký vào `queue_logs`.
+  7. Hệ thống phát sự kiện `QueueServingChangedEvent` lên RabbitMQ (`queue.serving.changed`).
+  8. Notification Service đẩy sự kiện realtime qua SignalR Hub tới tất cả client đang theo dõi bác sĩ đó.
+  9. Màn hình bác sĩ và màn hình bệnh nhân lập tức cập nhật số đang phục vụ.

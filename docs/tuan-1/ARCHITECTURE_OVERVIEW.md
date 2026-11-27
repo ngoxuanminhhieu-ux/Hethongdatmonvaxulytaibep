@@ -1,120 +1,111 @@
 # SƠ ĐỒ VÀ BÁO CÁO KIẾN TRÚC TỔNG QUAN HỆ THỐNG
-## Đề tài 04: Hệ thống Đặt món và Xử lý tại Bếp (Food Ordering & Kitchen Processing)
+## Đề tài 09: Hệ thống Đặt lịch khám và Quản lý hàng đợi (Clinic Appointment & Queue Management System)
 
 ---
 
 ## 1. Sơ đồ kiến trúc tổng quan (System Architecture Diagram)
 
-Hệ thống được thiết kế theo mô hình **Kiến trúc Hướng sự kiện phân tán (Distributed Event-Driven Architecture)** gồm 5 khối thành phần độc lập:
+Hệ thống được thiết kế theo mô hình **Kiến trúc Hướng sự kiện phân tán (Distributed Event-Driven Architecture)** gồm các service độc lập giao tiếp qua REST API, RabbitMQ và SignalR:
 
 ```mermaid
 flowchart TD
     subgraph Clients["TẦNG CLIENT (GIAO DIỆN NGƯỜI DÙNG)"]
-        CustomerUI["Khách hàng UI<br/>(Đặt món & Theo dõi)"]
-        KitchenUI["Màn hình Bếp KDS<br/>(Quản lý & Cập nhật đơn)"]
+        PatientUI["Patient Client UI<br/>(Đặt lịch, Nhận STT, Xem tiến độ)"]
+        DoctorUI["Doctor Display UI<br/>(Màn hình phòng khám, Gọi số, Hoàn thành)"]
     end
 
-    subgraph ApiGateway["TẦNG TIẾP NHẬN YÊU CẦU"]
-        OrderApi["Order API (ASP.NET Core Web API)<br/>• GET /api/menu<br/>• POST /api/orders<br/>• GET /api/orders/{id}<br/>• Xác thực dữ liệu & Tính toán"]
+    subgraph ApiGateway["TẦNG TIẾP NHẬN YÊU CẦU (APPOINTMENT API)"]
+        AppointmentApi["Appointment API (ASP.NET Core Web API)<br/>• GET /api/doctors<br/>• GET /api/doctors/{id}/slots<br/>• POST /api/appointments<br/>• DELETE /api/appointments/{id}<br/>• GET /api/appointments/{id}<br/>• GET /api/queues/{doctorId}"]
     end
 
     subgraph DatabaseLayer["TẦNG LƯU TRỮ TẬP TRUNG"]
-        PostgresDB[("PostgreSQL Database<br/>• customers<br/>• menu_items<br/>• orders<br/>• order_details<br/>• order_status_histories")]
+        PostgresDB[("PostgreSQL Database<br/>• doctors<br/>• time_slots<br/>• patients<br/>• appointments<br/>• queue_logs")]
     end
 
-    subgraph MessageBroker["TẦNG TRUYỀN THÔNG ĐIỆP BẤT ĐỒNG BỘ"]
-        Exchange["RabbitMQ Topic Exchange<br/>('food.order.exchange')"]
-        QueueKitchen["Queue: 'order.process.queue'<br/>(Routing Key: 'order.created')"]
-        QueueNotify["Queue: 'order.notification.queue'<br/>(Routing Key: 'order.*')"]
-        QueueDLQ["Queue: 'order.dlq'<br/>(Dead Letter Queue)"]
+    subgraph MessageBroker["TẦNG TRUYỀN THÔNG ĐIỆP BẤT ĐỒNG BỘ (RABBITMQ)"]
+        Exchange["RabbitMQ Topic Exchange<br/>('clinic.appointment.exchange')"]
+        QueueProcess["Queue: 'queue.process.queue'<br/>(Routing Key: 'appointment.requested')"]
+        QueueNotify["Queue: 'queue.notification.queue'<br/>(Routing Key: 'queue.*', 'appointment.*')"]
+        QueueDLQ["Queue: 'queue.dlq'<br/>(Dead Letter Queue)"]
     end
 
-    subgraph Workers["TẦNG XỬ LÝ NGHIỆP VỤ BẾP"]
-        KitchenWorker["Kitchen Worker (.NET Background Service)<br/>• Lắng nghe đơn đặt món<br/>• Xử lý theo thứ tự<br/>• Cập nhật trạng thái chế biến"]
+    subgraph Workers["TẦNG XỬ LÝ HÀNG ĐỢI (QUEUE WORKER)"]
+        QueueWorker["Queue Worker (.NET Background Service)<br/>• Lắng nghe yêu cầu cấp số<br/>• Sinh số thứ tự tuần tự theo bác sĩ/ngày<br/>• Cập nhật trạng thái Confirmed<br/>• Ghi log kiểm toán"]
     end
 
-    subgraph RealtimeLayer["TẦNG THÔNG BÁO THỜI GIAN THỰC"]
-        NotifyService["Notification Service (SignalR Hub)<br/>• Lắng nghe sự kiện từ RabbitMQ<br/>• Điều hướng nhóm theo OrderId<br/>• Đẩy thông báo Push Realtime"]
+    subgraph RealtimeLayer["TẦNG THÔNG BÁO THỜI GIAN THỰC (NOTIFICATION SERVICE)"]
+        NotifyService["Notification Service (SignalR Hub)<br/>• Lắng nghe sự kiện từ RabbitMQ<br/>• Quản lý Group: doctor-queue-{id}<br/>• Đẩy thông báo Push Realtime"]
     end
 
     %% Client calls
-    CustomerUI -->|1. REST HTTP: Xem Menu & Đặt món| OrderApi
-    KitchenUI -->|Tra cứu & Cập nhật trạng thái| OrderApi
+    PatientUI -->|1. REST HTTP: Tra cứu bác sĩ & Đặt lịch| AppointmentApi
+    DoctorUI -->|Điều phối hàng đợi: CallNext, Complete| AppointmentApi
 
-    %% Order API persistence & publish
-    OrderApi -->|2. Ghi nhận đơn hàng & lịch sử| PostgresDB
-    OrderApi -->|3. Publish: OrderCreatedEvent| Exchange
+    %% Appointment API persistence & publish
+    AppointmentApi -->|2. Kiểm tra slot & Lưu lịch hẹn Pending| PostgresDB
+    AppointmentApi -->|3. Publish: AppointmentRequestedEvent| Exchange
 
     %% RabbitMQ routing
-    Exchange -->|Binding: order.created| QueueKitchen
-    Exchange -->|Binding: order.*| QueueNotify
-    QueueKitchen -.->|Lỗi quá số lần retry| QueueDLQ
+    Exchange -->|Binding: appointment.requested| QueueProcess
+    Exchange -->|Binding: queue.*, appointment.*| QueueNotify
+    QueueProcess -.->|Lỗi xử lý / DLX| QueueDLQ
 
-    %% Kitchen processing
-    QueueKitchen -->|4. Consume đơn hàng| KitchenWorker
-    KitchenWorker -->|5. Cập nhật trạng thái chế biến| PostgresDB
-    KitchenWorker -->|6. Publish: OrderStatusChangedEvent| Exchange
+    %% Queue Worker processing
+    QueueProcess -->|4. Consume yêu cầu cấp số| QueueWorker
+    QueueWorker -->|5. Sinh STT & Cập nhật Confirmed| PostgresDB
+    QueueWorker -->|6. Publish: QueueNumberAssignedEvent| Exchange
 
     %% Realtime push
-    QueueNotify -->|7. Consume sự kiện| NotifyService
-    NotifyService -->|8. Push WebSocket / SignalR| CustomerUI
-    NotifyService -->|Đồng bộ màn hình| KitchenUI
+    QueueNotify -->|7. Consume sự kiện hàng đợi| NotifyService
+    NotifyService -->|8. Push SignalR: ReceiveQueueUpdate| PatientUI
+    NotifyService -->|8. Push SignalR: ReceiveQueueUpdate| DoctorUI
 ```
 
 ---
 
-## 2. Luồng giao tiếp đầu-cuối (End-to-End Sequence Diagram)
+## 2. Mô tả các thành phần trong hệ thống
 
-Sơ đồ trình bày chi tiết sự kết hợp giữa **giao tiếp đồng bộ (Synchronous HTTP REST)** và **giao tiếp bất đồng bộ (Asynchronous AMQP/RabbitMQ)**:
+### 2.1. Client (Giao diện người dùng)
+- **Patient Client UI (`index.html`):** Cho phép người bệnh tra cứu bác sĩ, phòng khám, các khung giờ còn chỗ trống, đăng ký khám bệnh, nhận phiếu khám điện tử có số thứ tự và theo dõi tiến độ hàng đợi.
+- **Doctor Display UI (`doctor.html`):** Màn hình hiển thị tại phòng khám cho bác sĩ/y tá. Hiển thị số thứ tự đang khám to rõ, danh sách chờ và cung cấp các nút thao tác nghiệp vụ: Gọi số tiếp theo (`Call Next`), Hoàn thành ca khám (`Complete`), Báo bệnh nhân vắng mặt (`No Show`).
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor C as Khách hàng (Client UI)
-    participant API as Order API
-    participant DB as PostgreSQL DB
-    participant MQ as RabbitMQ Broker
-    participant KW as Kitchen Worker
-    participant NS as Notification Service (SignalR)
+### 2.2. Appointment API (Port 5001)
+- Cung cấp các RESTful API tối thiểu theo đặc tả:
+  - `GET /api/doctors`: Danh sách bác sĩ, phòng khám, chuyên khoa.
+  - `GET /api/doctors/{id}/slots`: Danh sách khung giờ khám còn chỗ.
+  - `POST /api/appointments`: Tiếp nhận đặt lịch, kiểm tra tính hợp lệ và slot trống, tạo lịch hẹn ở trạng thái `Pending`.
+  - `DELETE /api/appointments/{id}`: Hủy lịch khám, giải phóng slot.
+  - `GET /api/appointments/{id}`: Tra cứu thông tin chi tiết lịch hẹn và lịch sử.
+  - `GET /api/queues/{doctorId}`: Tra cứu tình trạng hàng đợi hiện tại của phòng khám.
+  - Các API điều phối hàng đợi: `POST /api/queues/{doctorId}/next`, `POST /api/queues/{doctorId}/complete`, `POST /api/queues/{doctorId}/noshow`.
+- Đóng vai trò là **Message Producer**, kết nối bền bỉ với RabbitMQ để đưa yêu cầu cấp số vào `clinic.appointment.exchange` với routing key `appointment.requested`.
 
-    Note over C, API: GIAO TIẾP ĐỒNG BỘ (SYNCHRONOUS)
-    C->>API: POST /api/orders (Thông tin món, bàn, khách)
-    API->>API: Kiểm tra dữ liệu hợp lệ (Validation)
-    API->>DB: Bắt đầu Transaction: INSERT order & order_details
-    DB-->>API: Lưu thành công (Status = Pending)
-    
-    Note over API, MQ: GIAO TIẾP BẤT ĐỒNG BỘ (ASYNCHRONOUS)
-    API->>MQ: Publish 'OrderCreatedEvent' (Exchange: food.order.exchange, Key: order.created)
-    API-->>C: Phản hồi HTTP 201 Created (Kèm OrderId)
-    C->>NS: Kết nối SignalR Hub & JoinGroup("order-{id}")
+### 2.3. RabbitMQ Message Broker (Port 5672, Management: 15672)
+- Quản lý message queue phân tán, phân tách phụ thuộc giữa API, Worker và Notification Service.
+- Thiết kế **Topic Exchange**: `clinic.appointment.exchange`.
+- Các Queue:
+  - `queue.process.queue`: Lắng nghe sự kiện `appointment.requested`.
+  - `queue.notification.queue`: Lắng nghe sự kiện `queue.*`, `appointment.*`.
+  - `queue.dlq`: Hàng đợi thư chết hứng các message lỗi để đối soát và bảo vệ hệ thống không bị crash.
 
-    Note over MQ, KW: BẾP TIẾP NHẬN ĐƠN HÀNG QUA QUEUE
-    MQ->>KW: Consume message từ 'order.process.queue'
-    KW->>KW: Kiểm tra Idempotency (Tránh trùng lặp)
-    KW-->>MQ: Gửi BasicAck xác nhận đã nhận đơn
-    KW->>DB: Cập nhật status = 'Preparing' & ghi lịch sử
-    KW->>MQ: Publish 'OrderStatusChangedEvent' (Key: order.status.changed)
+### 2.4. Queue Worker (Background Service)
+- Lắng nghe message từ `queue.process.queue`.
+- Thực hiện logic nghiệp vụ cốt lõi: Tính toán số thứ tự tăng dần tự động cho từng bác sĩ trong ngày (`queue_number`).
+- Cập nhật trạng thái lịch hẹn từ `Pending` $\to$ `Confirmed`.
+- Ghi nhật ký vào bảng `queue_logs`.
+- Xác thực tin nhắn thủ công (`basicAck`), nack tin lỗi (`basicNack`).
+- Phát sự kiện `QueueNumberAssignedEvent` lên RabbitMQ để kích hoạt thông báo realtime.
 
-    Note over MQ, NS: PHÁT SỰ KIỆN REALTIME CHO KHÁCH HÀNG
-    MQ->>NS: Consume message từ 'order.notification.queue'
-    NS->>C: Push SignalR: "Đơn hàng của bạn đang được chế biến" (Preparing)
-    
-    Note over KW, C: KHI MÓN ĂN HOÀN THÀNH
-    KW->>DB: Cập nhật status = 'Ready' & ghi lịch sử
-    KW->>MQ: Publish 'OrderStatusChangedEvent' (Status: Ready)
-    MQ->>NS: Consume message
-    NS->>C: Push SignalR: "Món ăn đã nấu xong! Mời bạn thưởng thức" (Ready)
-```
+### 2.5. Notification Service (SignalR Hub - Port 5003)
+- Lắng nghe sự kiện thay đổi hàng đợi từ `queue.notification.queue`.
+- Đẩy thông báo thời gian thực về Client qua SignalR WebSockets:
+  - `ReceiveQueueUpdate`: Cập nhật số đang phục vụ, danh sách chờ.
+  - `ReceiveAppointmentStatus`: Cập nhật trạng thái phiếu khám của bệnh nhân.
 
----
-
-## 3. Lý do lựa chọn bộ công nghệ
-
-| Thành phần | Công nghệ lựa chọn | Lý do và Lợi ích kỹ thuật |
-|---|---|---|
-| **Backend Framework** | **ASP.NET Core 8 Web API (C#)** | - Hiệu năng cao (top benchmark thế giới).<br/>- Hệ sinh thái C# mạnh mẽ, Dependency Injection tích hợp sẵn.<br/>- Hỗ trợ SignalR nguyên bản cho realtime.<br/>- Chuẩn hóa theo chương trình giảng dạy PTUDPT tại các trường đại học. |
-| **Message Broker** | **RabbitMQ (v3.13-management)** | - Hỗ trợ chuẩn giao thức AMQP 0-9-1.<br/>- Đảm bảo độ tin cậy tin nhắn (Message Durability, Acknowledgement, DLQ).<br/>- Có giao diện Web Management trực quan tại port 15672, hỗ trợ kiểm tra queue, rate, message payload một cách dễ dàng trong buổi bảo vệ. |
-| **Cơ sở dữ liệu** | **PostgreSQL 16** | - Hệ quản trị CSDL quan hệ mã nguồn mở mạnh mẽ nhất hiện nay.<br/>- Hỗ trợ giao dịch ACID nghiêm ngặt (đặc biệt quan trọng khi tính tiền đơn hàng).<br/>- Tích hợp hoàn hảo với Entity Framework Core (`Npgsql.EntityFrameworkCore.PostgreSQL`). |
-| **Truyền thông Realtime**| **ASP.NET Core SignalR** | - Tự động đàm phán phương thức truyền tải tốt nhất (ưu tiên WebSockets, fallback SSE/Long Polling).<br/>- Hỗ trợ định tuyến nhóm (`Groups.AddToGroupAsync`), cho phép chỉ gửi thông báo trạng thái đến đúng phiên khách hàng đặt đơn đó. |
-| **Frontend Client** | **HTML5 / CSS3 / Modern JS (ES6+)** | - Nhẹ, không phụ thuộc vào chuỗi build phức tạp, chạy trực tiếp trên trình duyệt.<br/>- Dễ dàng tích hợp thư viện `@microsoft/signalr` qua CDN.<br/>- Cung cấp 2 giao diện riêng biệt: Khách hàng đặt món và Màn hình bếp KDS. |
-| **Containerization** | **Docker & Docker Compose** | - Đóng gói môi trường đồng nhất.<br/>- Khởi động toàn bộ CSDL, Message Queue chỉ bằng lệnh `docker compose up -d`. |
+### 2.6. PostgreSQL Database (Port 5432)
+- Cơ sở dữ liệu quan hệ lưu trữ tập trung:
+  - `doctors`: Thông tin bác sĩ, chuyên khoa, phòng khám.
+  - `time_slots`: Khung giờ khám, số lượng tối đa (`max_capacity`), số lượng đã đặt (`current_bookings`).
+  - `patients`: Hồ sơ bệnh nhân (họ tên, số điện thoại, CCCD).
+  - `appointments`: Lịch khám, số thứ tự, trạng thái.
+  - `queue_logs`: Nhật ký kiểm toán lịch sử thay đổi trạng thái hàng đợi.

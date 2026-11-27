@@ -1,22 +1,22 @@
 version: '3.8'
 
 services:
-  # 1. Cơ sở dữ liệu tập trung PostgreSQL 16
+  # 1. Cơ sở dữ liệu tập trung PostgreSQL 16 cho Đề tài 09
   postgres:
     image: postgres:16-alpine
-    container_name: food_order_postgres
+    container_name: clinic_queue_postgres
     restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: food_order_db
+      POSTGRES_DB: clinic_queue_db
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d food_order_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d clinic_queue_db"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,7 +24,7 @@ services:
   # 2. Message Broker RabbitMQ 3.13 kèm Web Management
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: food_order_rabbitmq
+    container_name: clinic_queue_rabbitmq
     restart: always
     environment:
       RABBITMQ_DEFAULT_USER: guest

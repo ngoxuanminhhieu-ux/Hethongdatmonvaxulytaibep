@@ -1,48 +1,52 @@
 # TÀI LIỆU HỢP ĐỒNG API (API CONTRACT SPECIFICATION)
-## Đề tài 04: Hệ thống Đặt món và Xử lý tại Bếp
-**Base URL:** `http://localhost:5001`  
+## Đề tài 09: Hệ thống Đặt lịch khám và Quản lý hàng đợi (Clinic Appointment & Queue Management)
+
+**Base URL:** `http://localhost:5001/api`  
 **Content-Type:** `application/json`
 
 ---
 
-## 1. Danh sách các API Endpoints
+## 1. Danh sách Endpoints tối thiểu
 
-| Phương thức | Đường dẫn API | Mục đích | Người gọi |
-|---|---|---|---|
-| `GET` | `/api/menu` | Lấy danh sách các món ăn khả dụng | Khách hàng |
-| `POST` | `/api/orders` | Tiếp nhận đơn đặt món mới | Khách hàng |
-| `GET` | `/api/orders/{id}` | Lấy chi tiết đơn hàng & lịch sử trạng thái | Khách hàng / Bếp |
-| `GET` | `/api/orders` | Lấy danh sách tất cả các đơn hàng | Bếp / Quản trị |
-| `PUT` | `/api/orders/{id}/status` | Cập nhật trạng thái đơn hàng thủ công | Bếp |
-
----
-
-## 2. Chi tiết từng API Endpoint
-
-### 2.1. GET `/api/menu`
-Lấy danh sách các món ăn đang phục vụ tại nhà hàng.
-
-- **Query Parameters:** (Tùy chọn)
-  - `category` (string, optional): Lọc theo danh mục (vd: `Món chính`, `Đồ uống`).
-- **Phản hồi thành công (HTTP 200 OK):**
+### 1.1. Tra cứu danh sách Bác sĩ / Phòng khám
+- **Method:** `GET`
+- **Endpoint:** `/doctors`
+- **Query Parameters:**
+  - `specialty` (string, optional): Lọc theo chuyên khoa (vd: `Tim mạch`, `Nhi khoa`).
+  - `search` (string, optional): Từ khóa tìm theo tên bác sĩ, phòng hoặc chuyên khoa.
+- **Response 200 OK:**
 ```json
 [
   {
     "id": 1,
-    "name": "Phở Bò Tái Nạm",
-    "description": "Bánh phở tươi, thịt bò tái nạm mềm thơm cùng nước dùng hầm xương 24h",
-    "price": 65000.00,
-    "imageUrl": "https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=500",
-    "category": "Món chính",
-    "isAvailable": true
-  },
+    "name": "BS. CKII Nguyễn Văn A",
+    "specialty": "Tim mạch",
+    "roomNumber": "P.201",
+    "phone": "0901234567",
+    "isActive": true
+  }
+]
+```
+
+---
+
+### 1.2. Tra cứu khung giờ khám còn chỗ
+- **Method:** `GET`
+- **Endpoint:** `/doctors/{id}/slots`
+- **Query Parameters:**
+  - `date` (string, format `YYYY-MM-DD`, optional): Ngày khám cần tra cứu.
+- **Response 200 OK:**
+```json
+[
   {
-    "id": 6,
-    "name": "Cà Phê Sữa Đá Sài Gòn",
-    "description": "Cà phê nguyên chất pha phin truyền thống hòa quyện cùng sữa đặc béo ngậy",
-    "price": 25000.00,
-    "imageUrl": "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=500",
-    "category": "Đồ uống",
+    "id": 1,
+    "doctorId": 1,
+    "slotDate": "2026-11-28",
+    "startTime": "08:00",
+    "endTime": "09:00",
+    "maxCapacity": 5,
+    "currentBookings": 2,
+    "availableSpots": 3,
     "isAvailable": true
   }
 ]
@@ -50,173 +54,126 @@ Lấy danh sách các món ăn đang phục vụ tại nhà hàng.
 
 ---
 
-### 2.2. POST `/api/orders`
-Tạo một đơn đặt món mới. Hệ thống sẽ validate dữ liệu, tính tổng tiền, lưu vào CSDL và phát sự kiện `OrderCreatedEvent` vào RabbitMQ.
-
-- **Headers:** `Content-Type: application/json`
+### 1.3. Đặt lịch khám mới (Tạo yêu cầu cấp số thứ tự)
+- **Method:** `POST`
+- **Endpoint:** `/appointments`
 - **Request Body:**
 ```json
 {
-  "customerName": "Nguyễn Văn An",
-  "phone": "0901234567",
-  "tableNumber": "Bàn 01",
-  "notes": "Món phở làm ít hành, nhiều tiêu",
-  "items": [
-    {
-      "menuItemId": 1,
-      "quantity": 2,
-      "notes": "1 tô không hành"
-    },
-    {
-      "menuItemId": 6,
-      "quantity": 1,
-      "notes": "Ít ngọt, nhiều đá"
-    }
-  ]
+  "fullName": "Nguyễn Văn Bệnh Nhân",
+  "phone": "0988888888",
+  "identityNumber": "001200001234",
+  "dateOfBirth": "1990-05-15",
+  "gender": "Nam",
+  "doctorId": 1,
+  "timeSlotId": 1,
+  "symptoms": "Đau tức ngực trái khi vận động mạnh",
+  "notes": "Có tiền sử huyết áp cao"
 }
 ```
-
-- **Quy tắc kiểm tra (Validation Rules):**
-  - `customerName`: Không được để trống, độ dài tối đa 100 ký tự.
-  - `tableNumber`: Không được để trống.
-  - `items`: Danh sách món phải có ít nhất 1 phần tử.
-  - Mỗi phần tử trong `items`: `menuItemId` phải tồn tại trong CSDL và `quantity` phải là số nguyên dương $\ge 1$.
-
-- **Phản hồi thành công (HTTP 201 Created):**
+- **Response 201 Created:**
 ```json
 {
-  "orderId": "b8d6f512-4217-4952-b8d9-291124458bc2",
-  "customerName": "Nguyễn Văn An",
-  "tableNumber": "Bàn 01",
-  "totalAmount": 155000.00,
+  "appointmentId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+  "patientId": 10,
+  "patientName": "Nguyễn Văn Bệnh Nhân",
+  "phone": "0988888888",
+  "doctorId": 1,
+  "doctorName": "BS. CKII Nguyễn Văn A",
+  "specialty": "Tim mạch",
+  "roomNumber": "P.201",
+  "timeSlotId": 1,
+  "slotDate": "2026-11-28",
+  "slotTime": "08:00 - 09:00",
+  "queueNumber": null,
   "status": "Pending",
-  "notes": "Món phở làm ít hành, nhiều tiêu",
-  "createdAt": "2026-11-17T20:45:00.000Z",
-  "items": [
-    {
-      "menuItemId": 1,
-      "name": "Phở Bò Tái Nạm",
-      "unitPrice": 65000.00,
-      "quantity": 2,
-      "subtotal": 130000.00,
-      "notes": "1 tô không hành"
-    },
-    {
-      "menuItemId": 6,
-      "name": "Cà Phê Sữa Đá Sài Gòn",
-      "unitPrice": 25000.00,
-      "quantity": 1,
-      "subtotal": 25000.00,
-      "notes": "Ít ngọt, nhiều đá"
-    }
-  ]
-}
-```
-
-- **Phản hồi lỗi (HTTP 400 Bad Request):**
-```json
-{
-  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
-  "title": "Dữ liệu đơn hàng không hợp lệ",
-  "status": 400,
-  "errors": {
-    "Items": ["Món ăn với ID 999 không tồn tại trong thực đơn."],
-    "TableNumber": ["Số bàn không được để trống."]
-  }
+  "symptoms": "Đau tức ngực trái khi vận động mạnh",
+  "createdAt": "2026-11-27T14:30:00Z"
 }
 ```
 
 ---
 
-### 2.3. GET `/api/orders/{id}`
-Lấy chi tiết đơn hàng kèm toàn bộ lịch sử biến đổi trạng thái (Timeline).
-
-- **Path Parameter:**
-  - `id` (UUID): Mã đơn hàng cần tra cứu.
-- **Phản hồi thành công (HTTP 200 OK):**
+### 1.4. Tra cứu chi tiết lịch hẹn & tiến độ
+- **Method:** `GET`
+- **Endpoint:** `/appointments/{id}`
+- **Response 200 OK:**
 ```json
 {
-  "orderId": "b8d6f512-4217-4952-b8d9-291124458bc2",
-  "customerName": "Nguyễn Văn An",
-  "tableNumber": "Bàn 01",
-  "totalAmount": 155000.00,
-  "status": "Preparing",
-  "notes": "Món phở làm ít hành, nhiều tiêu",
-  "createdAt": "2026-11-17T20:45:00.000Z",
-  "updatedAt": "2026-11-17T20:46:15.000Z",
-  "items": [
+  "appointmentId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+  "patientName": "Nguyễn Văn Bệnh Nhân",
+  "doctorName": "BS. CKII Nguyễn Văn A",
+  "roomNumber": "P.201",
+  "queueNumber": 3,
+  "status": "Confirmed",
+  "history": [
     {
-      "menuItemId": 1,
-      "name": "Phở Bò Tái Nạm",
-      "unitPrice": 65000.00,
-      "quantity": 2,
-      "subtotal": 130000.00,
-      "notes": "1 tô không hành"
-    },
-    {
-      "menuItemId": 6,
-      "name": "Cà Phê Sữa Đá Sài Gòn",
-      "unitPrice": 25000.00,
-      "quantity": 1,
-      "subtotal": 25000.00,
-      "notes": "Ít ngọt, nhiều đá"
-    }
-  ],
-  "statusHistory": [
-    {
+      "queueNumber": 0,
       "fromStatus": null,
       "toStatus": "Pending",
-      "changedBy": "OrderApi",
-      "notes": "Đơn hàng mới tạo",
-      "timestamp": "2026-11-17T20:45:00.000Z"
+      "action": "CreateAppointment",
+      "changedBy": "Patient",
+      "timestamp": "2026-11-27T14:30:00Z"
     },
     {
+      "queueNumber": 3,
       "fromStatus": "Pending",
-      "toStatus": "Preparing",
-      "changedBy": "KitchenWorker",
-      "notes": "Bếp đã tiếp nhận và bắt đầu chế biến",
-      "timestamp": "2026-11-17T20:46:15.000Z"
+      "toStatus": "Confirmed",
+      "action": "AssignQueueNumber",
+      "changedBy": "QueueWorker",
+      "timestamp": "2026-11-27T14:30:01Z"
     }
   ]
 }
 ```
 
-- **Phản hồi lỗi (HTTP 404 Not Found):**
+---
+
+### 1.5. Hủy lịch khám
+- **Method:** `DELETE`
+- **Endpoint:** `/appointments/{id}`
+- **Query Parameters:**
+  - `reason` (string, optional): Lý do hủy lịch.
+- **Response 200 OK:**
 ```json
 {
-  "title": "Không tìm thấy đơn hàng",
-  "status": 404,
-  "detail": "Đơn hàng với mã b8d6f512-4217-4952-b8d9-291124458bc2 không tồn tại."
+  "message": "Đã hủy lịch khám thành công và giải phóng khung giờ.",
+  "appointmentId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+  "status": "Cancelled"
 }
 ```
 
 ---
 
-### 2.4. GET `/api/orders`
-Lấy danh sách các đơn hàng hiện có trong hệ thống (dùng cho màn hình bếp KDS).
-
-- **Query Parameters:** (Tùy chọn)
-  - `status` (string, optional): Lọc theo trạng thái (`Pending`, `Preparing`, `Ready`, `Cancelled`).
-- **Phản hồi thành công (HTTP 200 OK):** Mảng các đối tượng tóm tắt đơn hàng sắp xếp theo thời gian tạo (cũ nhất lên trước để bếp làm trước - FIFO).
+### 1.6. Tra cứu trạng thái hàng đợi phòng khám
+- **Method:** `GET`
+- **Endpoint:** `/queues/{doctorId}`
+- **Response 200 OK:**
+```json
+{
+  "doctorId": 1,
+  "doctorName": "BS. CKII Nguyễn Văn A",
+  "specialty": "Tim mạch",
+  "roomNumber": "P.201",
+  "currentServingNumber": 2,
+  "currentPatientName": "Trần Thị Lan",
+  "currentAppointmentId": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+  "totalWaiting": 3,
+  "waitingList": [
+    {
+      "appointmentId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+      "queueNumber": 3,
+      "patientName": "Nguyễn Văn Bệnh Nhân",
+      "slotTime": "08:00 - 09:00",
+      "status": "Confirmed"
+    }
+  ]
+}
+```
 
 ---
 
-### 2.5. PUT `/api/orders/{id}/status`
-Cập nhật thủ công trạng thái của đơn hàng từ màn hình bếp (khi đầu bếp thao tác bấm nút).
-
-- **Request Body:**
-```json
-{
-  "status": "Ready",
-  "changedBy": "Chef Minh",
-  "notes": "Đã nấu xong đầy đủ các món"
-}
-```
-- **Phản hồi thành công (HTTP 200 OK):**
-```json
-{
-  "orderId": "b8d6f512-4217-4952-b8d9-291124458bc2",
-  "newStatus": "Ready",
-  "updatedAt": "2026-11-17T20:50:00.000Z"
-}
-```
+### 1.7. Điều phối hàng đợi phòng khám (Dành cho Bác sĩ)
+- **`POST /queues/{doctorId}/next`:** Gọi số thứ tự tiếp theo vào phòng khám.
+- **`POST /queues/{doctorId}/complete`:** Hoàn thành ca khám hiện tại.
+- **`POST /queues/{doctorId}/noshow`:** Báo bệnh nhân vắng mặt.

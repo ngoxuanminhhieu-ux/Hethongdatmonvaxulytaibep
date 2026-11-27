@@ -1,154 +1,141 @@
-# THIẾT KẾ CƠ SỞ DỮ LIỆU VÀ SƠ ĐỒ THỰC THỂ QUAN HỆ (ERD)
-## Đề tài 04: Hệ thống Đặt món và Xử lý tại Bếp
+# THIẾT KẾ CƠ SỞ DỮ LIỆU VÀ SƠ ĐỒ ERD
+## Đề tài 09: Hệ thống Đặt lịch khám và Quản lý hàng đợi (Clinic Appointment & Queue Management)
 
 ---
 
-## 1. Sơ đồ Thực thể Quan hệ (Entity-Relationship Diagram - ERD)
+## 1. Sơ đồ quan hệ thực thể (ERD Diagram)
 
 ```mermaid
 erDiagram
-    CUSTOMERS ||--o{ ORDERS : "places"
-    ORDERS ||--|{ ORDER_DETAILS : "contains"
-    MENU_ITEMS ||--o{ ORDER_DETAILS : "referenced_in"
-    ORDERS ||--|{ ORDER_STATUS_HISTORIES : "tracks"
+    DOCTORS ||--o{ TIME_SLOTS : "cung cấp"
+    DOCTORS ||--o{ APPOINTMENTS : "tiếp nhận"
+    PATIENTS ||--o{ APPOINTMENTS : "đặt lịch"
+    TIME_SLOTS ||--o{ APPOINTMENTS : "thuộc khung giờ"
+    APPOINTMENTS ||--o{ QUEUE_LOGS : "có lịch sử"
+    DOCTORS ||--o{ QUEUE_LOGS : "ghi nhận tại phòng"
 
-    CUSTOMERS {
-        int id PK "Khóa chính tự tăng"
-        string name "Họ tên khách hàng"
-        string phone "Số điện thoại liên lạc"
-        string table_number "Số bàn ăn"
-        datetime created_at "Thời gian tạo bản ghi"
+    DOCTORS {
+        int id PK
+        string name
+        string specialty
+        string room_number
+        string phone
+        bool is_active
+        datetime created_at
     }
 
-    MENU_ITEMS {
-        int id PK "Khóa chính tự tăng"
-        string name "Tên món ăn / đồ uống"
-        string description "Mô tả chi tiết nguyên liệu, vị giác"
-        decimal price "Đơn giá (VND)"
-        string image_url "Đường dẫn ảnh minh họa"
-        string category "Danh mục (Món chính, Tráng miệng, Nước)"
-        boolean is_available "Trạng thái còn món hay hết"
-        datetime created_at "Thời gian thêm món"
+    TIME_SLOTS {
+        int id PK
+        int doctor_id FK
+        date slot_date
+        string start_time
+        string end_time
+        int max_capacity
+        int current_bookings
+        bool is_available
+        datetime created_at
     }
 
-    ORDERS {
-        uuid id PK "Khóa chính định danh duy nhất (UUID/GUID)"
-        int customer_id FK "Liên kết bảng customers"
-        string table_number "Số bàn phục vụ"
-        decimal total_amount "Tổng giá trị đơn hàng (VND)"
-        string status "Trạng thái: Pending, Preparing, Ready, Cancelled"
-        string notes "Ghi chú chung của đơn"
-        datetime created_at "Thời điểm tạo đơn"
-        datetime updated_at "Thời điểm cập nhật trạng thái gần nhất"
+    PATIENTS {
+        int id PK
+        string full_name
+        string phone
+        string identity_number
+        date date_of_birth
+        string gender
+        datetime created_at
     }
 
-    ORDER_DETAILS {
-        int id PK "Khóa chính tự tăng"
-        uuid order_id FK "Khóa ngoại liên kết bảng orders"
-        int menu_item_id FK "Khóa ngoại liên kết bảng menu_items"
-        decimal unit_price "Đơn giá tại thời điểm đặt"
-        int quantity "Số lượng món đặt (>= 1)"
-        decimal subtotal "Thành tiền (unit_price * quantity)"
-        string item_notes "Ghi chú riêng cho món (ít đá, không ớt)"
+    APPOINTMENTS {
+        uuid id PK
+        int patient_id FK
+        int doctor_id FK
+        int time_slot_id FK
+        int queue_number
+        string status
+        string symptoms
+        string notes
+        datetime created_at
+        datetime updated_at
     }
 
-    ORDER_STATUS_HISTORIES {
-        int id PK "Khóa chính tự tăng"
-        uuid order_id FK "Khóa ngoại liên kết bảng orders"
-        string from_status "Trạng thái trước khi đổi"
-        string to_status "Trạng thái mới được chuyển sang"
-        string changed_by "Tác nhân thay đổi (OrderApi, KitchenStaff, Worker)"
-        string notes "Lý do thay đổi hoặc ghi chú lỗi"
-        datetime created_at "Thời điểm ghi nhận lịch sử"
+    QUEUE_LOGS {
+        int id PK
+        int doctor_id FK
+        uuid appointment_id FK
+        int queue_number
+        string from_status
+        string to_status
+        string action
+        string changed_by
+        string notes
+        datetime created_at
     }
 ```
 
 ---
 
-## 2. Từ điển Dữ liệu Chi tiết (Data Dictionary)
+## 2. Chi tiết các bảng dữ liệu
 
-### 2.1. Bảng `customers` (Khách hàng)
-Lưu trữ thông tin khách hàng đặt bàn và gọi món.
-
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+### 2.1. Bảng `doctors` (Danh mục Bác sĩ / Phòng khám)
+| Cột | Kiểu dữ liệu | Ràng buộc | Ý nghĩa |
 |---|---|---|---|
-| `id` | `SERIAL` | `PRIMARY KEY` | Định danh khách hàng tự tăng |
-| `name` | `VARCHAR(100)` | `NOT NULL` | Tên người đặt món |
-| `phone` | `VARCHAR(20)` | `NULL` | Số điện thoại |
-| `table_number` | `VARCHAR(20)` | `NOT NULL` | Số bàn ngồi ăn (Bàn 01, Bàn VIP,...) |
-| `created_at` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT CURRENT_TIMESTAMP` | Thời điểm tạo |
+| `id` | SERIAL | PRIMARY KEY | Mã định danh bác sĩ |
+| `name` | VARCHAR(120) | NOT NULL | Họ tên bác sĩ |
+| `specialty` | VARCHAR(100) | NOT NULL | Chuyên khoa (Tim mạch, Nhi khoa, v.v.) |
+| `room_number` | VARCHAR(20) | NOT NULL | Số phòng khám (P.101, P.202) |
+| `phone` | VARCHAR(20) | NULL | Số điện thoại nội bộ |
+| `is_active` | BOOLEAN | DEFAULT TRUE | Trạng thái hoạt động |
+| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Thời điểm tạo |
 
----
-
-### 2.2. Bảng `menu_items` (Thực đơn món ăn)
-Lưu trữ danh sách các món ăn, đồ uống phục vụ tại quán.
-
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+### 2.2. Bảng `time_slots` (Khung giờ khám bệnh)
+| Cột | Kiểu dữ liệu | Ràng buộc | Ý nghĩa |
 |---|---|---|---|
-| `id` | `SERIAL` | `PRIMARY KEY` | Mã định danh món ăn |
-| `name` | `VARCHAR(150)` | `NOT NULL` | Tên món ăn |
-| `description` | `TEXT` | `NULL` | Mô tả chi tiết món |
-| `price` | `NUMERIC(12, 2)` | `NOT NULL, CHECK (price >= 0)` | Đơn giá món ăn |
-| `image_url` | `VARCHAR(500)` | `NULL` | Link hình ảnh đại diện |
-| `category` | `VARCHAR(50)` | `NOT NULL` | Danh mục (Ví dụ: `Món chính`, `Đồ uống`, `Tráng miệng`) |
-| `is_available` | `BOOLEAN` | `DEFAULT TRUE` | `true`: còn hàng, `false`: tạm hết hàng |
-| `created_at` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT CURRENT_TIMESTAMP` | Thời điểm tạo món |
+| `id` | SERIAL | PRIMARY KEY | Mã khung giờ |
+| `doctor_id` | INT | FK `doctors(id)` | Thuộc bác sĩ nào |
+| `slot_date` | DATE | NOT NULL | Ngày khám |
+| `start_time` | VARCHAR(10) | NOT NULL | Giờ bắt đầu (`08:00`) |
+| `end_time` | VARCHAR(10) | NOT NULL | Giờ kết thúc (`09:00`) |
+| `max_capacity` | INT | DEFAULT 5 | Số lượng bệnh nhân tối đa |
+| `current_bookings` | INT | DEFAULT 0 | Số lượng đã đặt lịch |
+| `is_available` | BOOLEAN | DEFAULT TRUE | Còn nhận đặt hay đã khóa |
+| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Thời điểm tạo |
 
----
-
-### 2.3. Bảng `orders` (Đơn đặt hàng)
-Lưu trữ thông tin tổng quan của từng đơn hàng. Sử dụng `UUID` làm khóa chính để đảm bảo tính phân tán duy nhất trên toàn hệ thống mà không lo xung đột khi scale.
-
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+### 2.3. Bảng `patients` (Hồ sơ Bệnh nhân)
+| Cột | Kiểu dữ liệu | Ràng buộc | Ý nghĩa |
 |---|---|---|---|
-| `id` | `UUID` | `PRIMARY KEY` | Định danh đơn hàng (Global Unique ID) |
-| `customer_id` | `INT` | `REFERENCES customers(id)` | Liên kết khách hàng |
-| `table_number` | `VARCHAR(20)` | `NOT NULL` | Số bàn của đơn |
-| `total_amount` | `NUMERIC(12, 2)` | `NOT NULL, CHECK (total_amount >= 0)` | Tổng giá trị toàn đơn hàng |
-| `status` | `VARCHAR(20)` | `NOT NULL, CHECK (status IN ('Pending', 'Preparing', 'Ready', 'Cancelled'))` | Trạng thái xử lý |
-| `notes` | `TEXT` | `NULL` | Ghi chú chung của khách |
-| `created_at` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT CURRENT_TIMESTAMP` | Thời điểm tạo đơn |
-| `updated_at` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT CURRENT_TIMESTAMP` | Thời điểm trạng thái thay đổi |
+| `id` | SERIAL | PRIMARY KEY | Mã định danh bệnh nhân |
+| `full_name` | VARCHAR(120) | NOT NULL | Họ và tên |
+| `phone` | VARCHAR(20) | NOT NULL | Số điện thoại liên hệ |
+| `identity_number` | VARCHAR(30) | NULL | CCCD / Số định danh cá nhân |
+| `date_of_birth` | DATE | NULL | Ngày tháng năm sinh |
+| `gender` | VARCHAR(10) | NULL | Giới tính (Nam/Nữ) |
+| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Thời điểm tạo hồ sơ |
 
----
-
-### 2.4. Bảng `order_details` (Chi tiết đơn hàng)
-Lưu từng món ăn trong đơn, số lượng, và bảo toàn giá trị tại thời điểm mua (`unit_price`).
-
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+### 2.4. Bảng `appointments` (Lịch hẹn khám & Số thứ tự)
+| Cột | Kiểu dữ liệu | Ràng buộc | Ý nghĩa |
 |---|---|---|---|
-| `id` | `SERIAL` | `PRIMARY KEY` | Định danh chi tiết đơn |
-| `order_id` | `UUID` | `NOT NULL, REFERENCES orders(id) ON DELETE CASCADE` | Mã đơn hàng tương ứng |
-| `menu_item_id` | `INT` | `NOT NULL, REFERENCES menu_items(id)` | Mã món ăn được chọn |
-| `unit_price` | `NUMERIC(12, 2)` | `NOT NULL, CHECK (unit_price >= 0)` | Đơn giá tại thời điểm đặt |
-| `quantity` | `INT` | `NOT NULL, CHECK (quantity > 0)` | Số lượng đặt |
-| `subtotal` | `NUMERIC(12, 2)` | `NOT NULL, CHECK (subtotal >= 0)` | Thành tiền (`unit_price * quantity`) |
-| `item_notes` | `VARCHAR(255)` | `NULL` | Ghi chú món (VD: Không hành, ít ngọt) |
+| `id` | UUID | PRIMARY KEY | Mã định danh duy nhất lịch khám |
+| `patient_id` | INT | FK `patients(id)` | Bệnh nhân đặt khám |
+| `doctor_id` | INT | FK `doctors(id)` | Bác sĩ khám |
+| `time_slot_id` | INT | FK `time_slots(id)` | Khung giờ đã chọn |
+| `queue_number` | INT | NULL | Số thứ tự khám (sinh tự động) |
+| `status` | VARCHAR(30) | NOT NULL | Trạng thái (`Pending`, `Confirmed`, `Serving`, `Completed`, `Cancelled`, `NoShow`) |
+| `symptoms` | TEXT | NULL | Triệu chứng mô tả |
+| `notes` | TEXT | NULL | Ghi chú thêm |
+| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Thời điểm đặt lịch |
+| `updated_at` | TIMESTAMPTZ | DEFAULT NOW() | Thời điểm cập nhật cuối |
 
----
-
-### 2.5. Bảng `order_status_histories` (Lịch sử trạng thái đơn)
-Lưu vết toàn bộ quá trình dịch chuyển trạng thái của đơn phục vụ audit và hiển thị timeline trên giao diện khách hàng.
-
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+### 2.5. Bảng `queue_logs` (Nhật ký kiểm toán hàng đợi)
+| Cột | Kiểu dữ liệu | Ràng buộc | Ý nghĩa |
 |---|---|---|---|
-| `id` | `SERIAL` | `PRIMARY KEY` | Định danh bản ghi lịch sử |
-| `order_id` | `UUID` | `NOT NULL, REFERENCES orders(id) ON DELETE CASCADE` | Mã đơn hàng |
-| `from_status` | `VARCHAR(20)` | `NULL` | Trạng thái trước đó |
-| `to_status` | `VARCHAR(20)` | `NOT NULL` | Trạng thái chuyển tới |
-| `changed_by` | `VARCHAR(50)` | `NOT NULL` | Tác nhân thực hiện (`OrderApi`, `KitchenWorker`, `Chef`) |
-| `notes` | `TEXT` | `NULL` | Ghi chú kèm theo (VD: Bếp bắt đầu làm) |
-| `created_at` | `TIMESTAMP WITH TIME ZONE` | `DEFAULT CURRENT_TIMESTAMP` | Thời điểm diễn ra sự kiện |
-
----
-
-## 3. Các Chỉ mục (Indexes) Tối ưu Truy vấn Phân tán
-
-1. `CREATE INDEX idx_orders_status ON orders(status);`  
-   $\to$ Tối ưu cho Kitchen Worker và Dashboard khi lấy danh sách đơn `Pending` hoặc `Preparing`.
-2. `CREATE INDEX idx_orders_customer_id ON orders(customer_id);`  
-   $\to$ Tối ưu khi khách hàng tra cứu các đơn mình đã đặt.
-3. `CREATE INDEX idx_order_details_order_id ON order_details(order_id);`  
-   $\to$ Tối ưu khi join chi tiết món ăn trong một đơn hàng.
-4. `CREATE INDEX idx_order_status_histories_order_id ON order_status_histories(order_id);`  
-   $\to$ Tối ưu khi truy vấn timeline lịch sử trạng thái của một đơn hàng.
+| `id` | SERIAL | PRIMARY KEY | Mã log |
+| `doctor_id` | INT | FK `doctors(id)` | Phòng khám ghi nhận sự kiện |
+| `appointment_id` | UUID | FK `appointments(id)` | Lịch khám liên quan |
+| `queue_number` | INT | NOT NULL | Số thứ tự tại thời điểm ghi log |
+| `from_status` | VARCHAR(30) | NULL | Trạng thái trước đó |
+| `to_status` | VARCHAR(30) | NOT NULL | Trạng thái mới |
+| `action` | VARCHAR(50) | NOT NULL | Hành động thực hiện (`AssignQueueNumber`, `CallNext`, `CompleteServing`, v.v.) |
+| `changed_by` | VARCHAR(60) | NOT NULL | Tác nhân thay đổi (`Patient`, `QueueWorker`, `Doctor`) |
+| `notes` | TEXT | NULL | Ghi chú chi tiết |
+| `created_at` | TIMESTAMPTZ | DEFAULT NOW() | Thời điểm ghi nhận |

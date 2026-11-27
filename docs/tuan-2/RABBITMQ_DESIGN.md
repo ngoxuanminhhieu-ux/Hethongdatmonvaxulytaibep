@@ -1,150 +1,144 @@
-# THIẾT KẾ RABBITMQ VÀ CẤU TRÚC MESSAGE
-## Đề tài 04: Hệ thống Đặt món và Xử lý tại Bếp (Food Ordering & Kitchen Processing)
+# THIẾT KẾ TOPOLOGY VÀ MESSAGE CONTRACT RABBITMQ
+## Đề tài 09: Hệ thống Đặt lịch khám và Quản lý hàng đợi (Clinic Appointment & Queue Management)
 
 ---
 
-## 1. Sơ đồ RabbitMQ Topology
+## 1. RabbitMQ Topology Design
 
 ```mermaid
-flowchart TD
-    ProducerAPI["Order API (Producer)"]
-    KitchenWorkerProd["Kitchen Worker (Producer)"]
-
-    subgraph RabbitMQ_Broker["CỤM MESSAGE BROKER (RABBITMQ)"]
-        MainExchange{{"Topic Exchange:<br/>food.order.exchange"}}
-        DLXExchange{{"Direct Exchange:<br/>food.order.dlx"}}
-        
-        QueueKitchen[("Queue: order.process.queue<br/>• Durable: true<br/>• x-dead-letter-exchange: food.order.dlx")]
-        QueueNotify[("Queue: order.notification.queue<br/>• Durable: true")]
-        QueueDLQ[("Queue: order.dlq<br/>(Dead Letter Queue)")]
-    end
-
-    ConsumerKitchen["Kitchen Worker (Consumer)"]
-    ConsumerNotify["Notification Service (Consumer)"]
-
-    %% Publishing
-    ProducerAPI -->|Publish with key: 'order.created'| MainExchange
-    KitchenWorkerProd -->|Publish with key: 'order.status.changed'| MainExchange
-
-    %% Routing
-    MainExchange -->|Binding key: 'order.created'| QueueKitchen
-    MainExchange -->|Binding key: 'order.*'| QueueNotify
+flowchart LR
+    Producer["Appointment API & Queue Worker<br/>(Publisher)"]
+    Exchange["Topic Exchange<br/>'clinic.appointment.exchange'"]
     
-    %% Dead letter routing
-    QueueKitchen -.->|Khi nack requeue=false hoặc retry thất bại| DLXExchange
-    DLXExchange -->|Binding key: 'order.failed'| QueueDLQ
+    DLX["Direct Exchange (DLX)<br/>'clinic.appointment.dlx'"]
+    QueueDLQ["Queue: 'queue.dlq'"]
 
-    %% Consuming
-    QueueKitchen -->|Consume (Prefetch=1, Manual Ack)| ConsumerKitchen
-    QueueNotify -->|Consume (Broadcast realtime)| ConsumerNotify
+    QueueProcess["Queue: 'queue.process.queue'<br/>(Durable: true, x-dead-letter-exchange)"]
+    QueueNotify["Queue: 'queue.notification.queue'<br/>(Durable: true)"]
+
+    Worker["Queue Worker<br/>(Consumer Cấp số)"]
+    Notify["Notification Service<br/>(SignalR Broadcaster)"]
+
+    Producer -->|Publish: appointment.requested| Exchange
+    Producer -->|Publish: queue.serving.changed| Exchange
+
+    Exchange -->|Binding: appointment.requested| QueueProcess
+    Exchange -->|Binding: queue.*, appointment.*| QueueNotify
+
+    QueueProcess -->|Consume & Ack| Worker
+    Worker -->|Publish: queue.number.assigned| Exchange
+    QueueProcess -.->|Nack (requeue=false)| DLX
+    DLX -->|Binding: queue.failed| QueueDLQ
+
+    QueueNotify -->|Consume| Notify
 ```
 
 ---
 
-## 2. Đặc tả các thành phần Topology
+## 2. Thông số kỹ thuật của Exchange và Queues
 
-| Thành phần | Tên | Loại (Type) | Cấu hình (Properties) | Chức năng |
-|---|---|---|---|---|
-| **Main Exchange** | `food.order.exchange` | `topic` | `durable: true`, `autoDelete: false` | Định tuyến các sự kiện đơn hàng dựa trên routing key phân cấp (`order.<action>`). |
-| **Dead Letter Exchange (DLX)** | `food.order.dlx` | `direct` | `durable: true`, `autoDelete: false` | Hứng các thông điệp bị xử lý lỗi hoặc vượt quá số lần retry. |
-| **Queue Bếp** | `order.process.queue` | Quorum / Classic | `durable: true`<br/>`x-dead-letter-exchange: food.order.dlx`<br/>`x-dead-letter-routing-key: order.failed` | Tiếp nhận đơn đặt món để bếp xử lý. |
-| **Queue Thông báo** | `order.notification.queue` | Classic | `durable: true` | Tiếp nhận mọi sự kiện đơn hàng để đẩy realtime cho người dùng. |
-| **Queue Chết (DLQ)** | `order.dlq` | Classic | `durable: true` | Lưu vết các thông điệp hỏng để quản trị viên kiểm tra và xử lý sự cố. |
+### 2.1. Exchanges
+1. **Main Exchange:**
+   - Name: `clinic.appointment.exchange`
+   - Type: `topic`
+   - Durable: `true`
+   - AutoDelete: `false`
+2. **Dead Letter Exchange (DLX):**
+   - Name: `clinic.appointment.dlx`
+   - Type: `direct`
+   - Durable: `true`
+   - AutoDelete: `false`
+
+### 2.2. Queues
+1. **Queue xử lý cấp số thứ tự (`queue.process.queue`):**
+   - Durable: `true`
+   - Exclusive: `false`, AutoDelete: `false`
+   - Arguments:
+     - `x-dead-letter-exchange`: `clinic.appointment.dlx`
+     - `x-dead-letter-routing-key`: `queue.failed`
+   - Bound to: `clinic.appointment.exchange` với Routing Key `appointment.requested`.
+
+2. **Queue gửi thông báo realtime (`queue.notification.queue`):**
+   - Durable: `true`
+   - Bound to: `clinic.appointment.exchange` với Routing Keys `queue.*` và `appointment.*`.
+
+3. **Queue thư chết (`queue.dlq`):**
+   - Durable: `true`
+   - Bound to: `clinic.appointment.dlx` với Routing Key `queue.failed`.
 
 ---
 
-## 3. Cấu trúc Message Contracts (JSON Schemas)
+## 3. Cấu trúc Message Contracts (JSON Schema)
 
-Mọi message trao đổi qua RabbitMQ đều bao gồm 2 phần:
-1. **Metadata Header:** Chứa thông tin phục vụ truy vết phân tán (`EventId`, `CorrelationId`, `Timestamp`, `EventType`).
-2. **Payload:** Dữ liệu nghiệp vụ chi tiết của sự kiện.
-
-### 3.1. Sự kiện `OrderCreatedEvent`
-- **Routing Key:** `order.created`
-- **Exchange:** `food.order.exchange`
-- **Thời điểm phát:** Ngay sau khi Order API lưu đơn thành công vào CSDL.
-- **Cấu trúc JSON:**
+### 3.1. `AppointmentRequestedEvent` (Routing Key: `appointment.requested`)
 ```json
 {
-  "eventId": "c71a3948-289e-4c7b-9c76-5fa7b2ec1623",
-  "correlationId": "b8d6f512-4217-4952-b8d9-291124458bc2",
-  "eventType": "OrderCreated",
-  "timestamp": "2026-11-17T20:45:00.125Z",
-  "sourceService": "OrderApi",
+  "eventId": "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
+  "correlationId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+  "eventType": "AppointmentRequestedEvent",
+  "timestamp": "2026-11-27T14:30:00Z",
+  "sourceService": "AppointmentApi",
   "data": {
-    "orderId": "b8d6f512-4217-4952-b8d9-291124458bc2",
-    "customerName": "Nguyễn Văn An",
-    "tableNumber": "Bàn 01",
-    "totalAmount": 155000.00,
-    "status": "Pending",
-    "notes": "Món phở làm ít hành, nhiều tiêu",
-    "createdAt": "2026-11-17T20:45:00.000Z",
-    "items": [
-      {
-        "menuItemId": 1,
-        "name": "Phở Bò Tái Nạm",
-        "unitPrice": 65000.00,
-        "quantity": 2,
-        "notes": "1 tô không hành"
-      },
-      {
-        "menuItemId": 6,
-        "name": "Cà Phê Sữa Đá Sài Gòn",
-        "unitPrice": 25000.00,
-        "quantity": 1,
-        "notes": "Ít ngọt, nhiều đá"
-      }
-    ]
+    "appointmentId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+    "patientId": 10,
+    "patientName": "Nguyễn Văn Bệnh Nhân",
+    "phone": "0988888888",
+    "doctorId": 1,
+    "doctorName": "BS. CKII Nguyễn Văn A",
+    "roomNumber": "P.201",
+    "timeSlotId": 1,
+    "slotDate": "2026-11-28",
+    "startTime": "08:00",
+    "endTime": "09:00",
+    "symptoms": "Đau tức ngực trái khi gắng sức",
+    "createdAt": "2026-11-27T14:30:00Z"
   }
 }
 ```
 
----
-
-### 3.2. Sự kiện `OrderStatusChangedEvent`
-- **Routing Key:** `order.status.changed`
-- **Exchange:** `food.order.exchange`
-- **Thời điểm phát:** Khi trạng thái đơn hàng được cập nhật (`Pending` $\to$ `Preparing` $\to$ `Ready` hoặc `Cancelled`).
-- **Cấu trúc JSON:**
+### 3.2. `QueueNumberAssignedEvent` (Routing Key: `queue.number.assigned`)
 ```json
 {
-  "eventId": "e92f418a-6b5d-481e-84ad-3081e74f7621",
-  "correlationId": "b8d6f512-4217-4952-b8d9-291124458bc2",
-  "eventType": "OrderStatusChanged",
-  "timestamp": "2026-11-17T20:46:15.300Z",
-  "sourceService": "KitchenWorker",
+  "eventId": "b2c3d4e5-f6a7-8b9c-0d1e-2f3a4b5c6d7e",
+  "correlationId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+  "eventType": "QueueNumberAssignedEvent",
+  "timestamp": "2026-11-27T14:30:01Z",
+  "sourceService": "QueueWorker",
   "data": {
-    "orderId": "b8d6f512-4217-4952-b8d9-291124458bc2",
-    "customerName": "Nguyễn Văn An",
-    "tableNumber": "Bàn 01",
-    "previousStatus": "Pending",
-    "newStatus": "Preparing",
-    "message": "Bếp đã tiếp nhận đơn và đang bắt đầu chế biến",
-    "changedBy": "KitchenWorker",
-    "updatedAt": "2026-11-17T20:46:15.000Z"
+    "appointmentId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+    "doctorId": 1,
+    "doctorName": "BS. CKII Nguyễn Văn A",
+    "roomNumber": "P.201",
+    "patientId": 10,
+    "patientName": "Nguyễn Văn Bệnh Nhân",
+    "queueNumber": 3,
+    "status": "Confirmed",
+    "slotTime": "08:00 - 09:00",
+    "assignedAt": "2026-11-27T14:30:01Z"
   }
 }
 ```
 
----
-
-## 4. Các cơ chế đảm bảo chất lượng hệ thống phân tán
-
-### 4.1. Độ bền vững của thông điệp (Message Durability)
-- Cờ `durable: true` trên Exchange và Queue đảm bảo metadata của hàng đợi không bị mất khi RabbitMQ restart.
-- Cờ `IBasicProperties.DeliveryMode = 2` (Persistent) khi Producer publish message đảm bảo thân message được ghi xuống đĩa (disk storage).
-
-### 4.2. Cơ chế xác nhận thủ công (Manual Acknowledgement)
-- Consumer không sử dụng chế độ `autoAck: true`.
-- Consumer chỉ gửi `channel.BasicAck(deliveryTag, multiple: false)` sau khi:
-  1. Đã ghi nhận thay đổi vào CSDL thành công.
-  2. Không có ngoại lệ logic nào xảy ra.
-- Nếu service bị crash trong khi đang xử lý đơn, RabbitMQ sẽ tự động hoàn trả message vào queue khi phát hiện kết nối TCP bị ngắt, đảm bảo không bao giờ thất thoát đơn hàng của khách.
-
-### 4.3. Phân tải công bằng (Fair Dispatching - Prefetch Count)
-- Thiết lập `channel.BasicQos(prefetchSize: 0, prefetchCount: 1, global: false)`.
-- RabbitMQ chỉ gửi đơn mới cho worker khi worker đó đã xử lý xong và gửi Ack cho đơn trước. Điều này ngăn chặn tình trạng một worker bị nghẽn trong khi worker khác đang rảnh rỗi.
-
-### 4.4. Cơ chế Idempotency (Chống xử lý trùng lặp)
-- Khi nhận `OrderCreatedEvent`, Kitchen Worker kiểm tra xem `OrderId` này đã tồn tại trong danh sách đơn đang nấu hoặc đã hoàn thành chưa.
-- Nếu đơn hàng đã ở trạng thái `Preparing` hoặc `Ready`, worker chỉ gửi Ack và bỏ qua bước ghi đè, ngăn ngừa tác động phụ (side effects) khi nhận message bị retry.
+### 3.3. `QueueServingChangedEvent` (Routing Key: `queue.serving.changed`)
+```json
+{
+  "eventId": "c3d4e5f6-a7b8-9c0d-1e2f-3a4b5c6d7e8f",
+  "correlationId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+  "eventType": "QueueServingChangedEvent",
+  "timestamp": "2026-11-27T14:35:00Z",
+  "sourceService": "AppointmentApi",
+  "data": {
+    "doctorId": 1,
+    "doctorName": "BS. CKII Nguyễn Văn A",
+    "roomNumber": "P.201",
+    "currentServingNumber": 3,
+    "currentPatientName": "Nguyễn Văn Bệnh Nhân",
+    "currentAppointmentId": "7f8b91a2-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+    "waitingCount": 2,
+    "action": "CallNext",
+    "message": "Mời số #03 - Bệnh nhân Nguyễn Văn Bệnh Nhân vào P.201 (BS. CKII Nguyễn Văn A)",
+    "changedBy": "Doctor",
+    "updatedAt": "2026-11-27T14:35:00Z"
+  }
+}
+```

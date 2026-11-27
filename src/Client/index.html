@@ -3,101 +3,128 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hệ thống Đặt món Ăn - Khách hàng</title>
+    <title>Hệ thống Đặt lịch khám và Quản lý Hàng đợi (Đề tài 09)</title>
     <link rel="stylesheet" href="css/style.css">
-    <!-- Thư viện SignalR Client qua CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 </head>
 <body>
 
     <header>
-        <h1>🍲 Hệ Thống Đặt Món Phân Tán (Đề tài 04)</h1>
+        <h1>🏥 Hệ Thống Đặt Lịch Khám & Quản Lý Hàng Đợi (Đề tài 09)</h1>
         <div class="nav-links">
-            <a href="index.html" class="active">🍽️ Khách hàng đặt món</a>
-            <a href="kitchen.html">👨‍🍳 Màn hình Bếp (KDS)</a>
+            <a href="index.html" class="active">🧑‍🦱 Bệnh nhân đặt lịch</a>
+            <a href="doctor.html">👨‍⚕️ Phòng khám Bác sĩ</a>
         </div>
     </header>
 
     <div class="container">
         <div class="grid">
-            <!-- Cột trái: Thực đơn món ăn -->
+            <!-- Cột trái: Form đặt lịch khám -->
             <div>
                 <div class="card">
-                    <div class="card-title">
-                        <span>📋 Thực đơn món ăn</span>
-                        <span id="menu-loading" style="font-size: 0.85rem; color: #64748b; font-weight: normal; margin-left: auto;">Đang tải menu...</span>
+                    <div class="card-title">📝 Đặt lịch khám bệnh trực tuyến</div>
+
+                    <!-- 1. Chọn Bác sĩ -->
+                    <div class="form-group">
+                        <label for="doctorSelect">1. Chọn Bác sĩ & Chuyên khoa (*)</label>
+                        <select id="doctorSelect" class="form-control" onchange="onDoctorChanged()">
+                            <option value="">-- Đang tải danh sách bác sĩ... --</option>
+                        </select>
                     </div>
-                    <div id="menu-container" class="menu-grid">
-                        <!-- Render danh sách món ăn từ API -->
+
+                    <!-- Thông tin phòng khám -->
+                    <div id="doctor-info-box" style="display: none; padding: 0.75rem; background: #f0f9ff; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid var(--primary);">
+                        <div>Phòng khám: <b id="info-room">-</b> | Chuyên khoa: <b id="info-specialty">-</b></div>
                     </div>
+
+                    <!-- 2. Chọn Khung giờ -->
+                    <div class="form-group">
+                        <label>2. Chọn Khung giờ khám còn chỗ (*)</label>
+                        <div id="slots-container" class="slots-grid">
+                            <p style="color: #94a3b8; font-size: 0.85rem;">Vui lòng chọn bác sĩ để xem khung giờ.</p>
+                        </div>
+                    </div>
+
+                    <!-- 3. Thông tin bệnh nhân -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label for="fullName">Họ và tên bệnh nhân (*)</label>
+                            <input type="text" id="fullName" class="form-control" placeholder="Nguyễn Văn An" value="Nguyễn Văn An">
+                        </div>
+                        <div class="form-group">
+                            <label for="phone">Số điện thoại (*)</label>
+                            <input type="text" id="phone" class="form-control" placeholder="0901234567" value="0901234567">
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label for="identityNumber">Số CCCD / CMND</label>
+                            <input type="text" id="identityNumber" class="form-control" placeholder="079090001234" value="079090001234">
+                        </div>
+                        <div class="form-group">
+                            <label for="gender">Giới tính</label>
+                            <select id="gender" class="form-control">
+                                <option value="Nam">Nam</option>
+                                <option value="Nữ">Nữ</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="symptoms">Mô tả triệu chứng / Lý do khám</label>
+                        <textarea id="symptoms" class="form-control" rows="2" placeholder="Ví dụ: Đau ngực nhẹ, khó thở khi leo cầu thang..."></textarea>
+                    </div>
+
+                    <button id="btn-book" class="btn btn-primary" style="width: 100%; padding: 0.85rem;" onclick="submitAppointment()">
+                        🚀 Xác Nhận Đặt Lịch & Cấp Số Thứ Tự
+                    </button>
                 </div>
             </div>
 
-            <!-- Cột phải: Giỏ hàng & Theo dõi đơn -->
+            <!-- Cột phải: Phiếu số thứ tự & Theo dõi hàng đợi Realtime -->
             <div>
-                <!-- Giỏ hàng -->
-                <div class="card">
-                    <div class="card-title">🛒 Giỏ hàng của bạn</div>
-                    <div class="form-group">
-                        <label for="tableNumber">Số bàn phục vụ (*)</label>
-                        <input type="text" id="tableNumber" class="form-control" placeholder="Ví dụ: Bàn 01" value="Bàn 01">
-                    </div>
-                    <div class="form-group">
-                        <label for="customerName">Họ và tên (*)</label>
-                        <input type="text" id="customerName" class="form-control" placeholder="Ví dụ: Nguyễn Văn An" value="Nguyễn Văn An">
-                    </div>
-                    <div class="form-group">
-                        <label for="phone">Số điện thoại</label>
-                        <input type="text" id="phone" class="form-control" placeholder="0901234567" value="0901234567">
-                    </div>
-                    <div class="form-group">
-                        <label for="orderNotes">Ghi chú cho bếp</label>
-                        <input type="text" id="orderNotes" class="form-control" placeholder="Ví dụ: Làm ít hành, nước dùng nóng">
+                <!-- Phiếu số thứ tự (Sau khi đặt lịch) -->
+                <div id="ticket-card" class="card" style="display: none;">
+                    <div class="card-title">
+                        <span>🎫 Phiếu Số Thứ Tự Khám Bệnh</span>
+                        <span id="ticket-status-badge" class="badge badge-pending" style="margin-left: auto;">Pending</span>
                     </div>
 
-                    <div id="cart-items-container">
-                        <p style="color: #94a3b8; text-align: center; padding: 1.5rem 0;">Chưa có món ăn nào trong giỏ.</p>
+                    <div class="ticket-box">
+                        <div style="font-size: 0.9rem; opacity: 0.9;">SỐ THỨ TỰ CỦA BẠN</div>
+                        <div id="ticket-number-display" class="ticket-number">⏳</div>
+                        <div id="ticket-doctor-name" style="font-weight: 600; font-size: 1.1rem;">-</div>
+                        <div id="ticket-room-name" style="font-size: 0.95rem; opacity: 0.9;">-</div>
                     </div>
 
-                    <div class="cart-total">
-                        <span>Tổng tiền:</span>
-                        <span id="cart-total-price" style="color: var(--primary);">0 đ</span>
+                    <div style="font-size: 0.85rem; color: #64748b; line-height: 1.6; margin-bottom: 1rem;">
+                        <div>Bệnh nhân: <b id="ticket-patient">-</b></div>
+                        <div>Khung giờ hẹn: <b id="ticket-time">-</b></div>
+                        <div>Mã lịch hẹn: <span id="ticket-appt-id" style="font-family: monospace;">-</span></div>
                     </div>
 
-                    <button id="btn-submit-order" class="btn btn-primary" style="width: 100%; padding: 0.75rem;" disabled>
-                        🚀 Gửi Đơn Đặt Món
+                    <button id="btn-cancel-appt" class="btn btn-outline" style="width: 100%; color: var(--danger);" onclick="cancelCurrentAppointment()">
+                        ❌ Hủy lịch hẹn này
                     </button>
                 </div>
 
-                <!-- Theo dõi trạng thái đơn hàng (Realtime) -->
-                <div id="order-tracking-card" class="card" style="display: none;">
+                <!-- Bảng trạng thái hàng đợi phòng khám Realtime -->
+                <div class="card">
                     <div class="card-title">
-                        <span>📡 Theo dõi trạng thái Realtime</span>
-                        <span id="realtime-status-badge" class="badge badge-pending" style="margin-left: auto;">Pending</span>
-                    </div>
-                    <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.5rem;">
-                        Mã đơn: <b id="tracking-order-id" style="color: var(--dark); word-break: break-all;">-</b>
-                    </p>
-                    <div id="realtime-alert-box" style="padding: 0.75rem; border-radius: 6px; background: #e0f2fe; color: #0369a1; font-size: 0.9rem; margin-bottom: 1rem;">
-                        Đơn hàng đã được gửi vào hàng đợi RabbitMQ và đang chờ bếp tiếp nhận...
+                        <span>📡 Trạng thái Hàng đợi Realtime</span>
+                        <span id="realtime-status-pill" style="font-size: 0.75rem; color: #16a34a; font-weight: normal; margin-left: auto;">● SignalR Live</span>
                     </div>
 
-                    <div class="timeline">
-                        <div id="step-pending" class="timeline-item active">
-                            <div class="timeline-dot"></div>
-                            <h4>1. Đã nhận đơn (Pending)</h4>
-                            <p style="font-size: 0.8rem; color: #64748b;">Order API đã tiếp nhận và gửi vào RabbitMQ</p>
-                        </div>
-                        <div id="step-preparing" class="timeline-item">
-                            <div class="timeline-dot"></div>
-                            <h4>2. Đang chế biến (Preparing)</h4>
-                            <p style="font-size: 0.8rem; color: #64748b;">Bếp đã bốc đơn từ queue và đang nấu món</p>
-                        </div>
-                        <div id="step-ready" class="timeline-item">
-                            <div class="timeline-dot"></div>
-                            <h4>3. Món ăn sẵn sàng (Ready)</h4>
-                            <p style="font-size: 0.8rem; color: #64748b;">Món ăn đã nấu xong, phục vụ mang ra bàn</p>
-                        </div>
+                    <div style="text-align: center; padding: 1rem; background: #f8fafc; border-radius: 8px; margin-bottom: 1rem;">
+                        <div style="font-size: 0.85rem; color: #64748b;">LƯỢT ĐANG PHỤC VỤ TẠI PHÒNG</div>
+                        <div id="current-serving-display" style="font-size: 3rem; font-weight: 800; color: #0369a1; margin: 0.2rem 0;">-</div>
+                        <div id="current-serving-patient" style="font-size: 0.9rem; font-weight: 600;">(Chưa có lượt nào)</div>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; font-size: 0.9rem; padding: 0.5rem 0; border-top: 1px solid #f1f5f9;">
+                        <span>Số bệnh nhân đang chờ:</span>
+                        <b id="waiting-count-display">0</b>
                     </div>
                 </div>
             </div>

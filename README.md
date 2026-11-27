@@ -1,6 +1,6 @@
-# HỆ THỐNG ĐẶT MÓN VÀ XỬ LÝ TẠI BẾP (FOOD ORDERING & KITCHEN PROCESSING SYSTEM)
+# HỆ THỐNG ĐẶT LỊCH KHÁM VÀ QUẢN LÝ HÀNG ĐỢI (CLINIC APPOINTMENT & QUEUE MANAGEMENT SYSTEM)
 > **Môn học:** Phát triển ứng dụng phân tán (Distributed Application Development - PTUDPT-DA)  
-> **Đề tài:** 04  
+> **Đề tài:** 09  
 > **Thời gian:** 9 Tuần  
 > **Kiến trúc:** Microservices / Event-Driven Architecture (RabbitMQ + PostgreSQL + ASP.NET Core 8 + SignalR)
 
@@ -8,30 +8,37 @@
 
 ## 1. Giới thiệu tổng quan
 
-Dự án xây dựng một hệ thống phân tán thực tế phục vụ quy trình gọi món tại bàn của khách hàng và chế biến tại bếp của nhà hàng:
-- **Khách hàng:** Xem menu, chọn món, gửi đơn đặt hàng và theo dõi tiến trình làm món theo thời gian thực (Realtime).
-- **Nhà bếp (Kitchen Display System):** Nhận đơn hàng theo thứ tự qua hàng đợi thông điệp RabbitMQ, chế biến món và phát sự kiện trạng thái (`Pending` $\to$ `Preparing` $\to$ `Ready`).
-- **Notification Service:** Cầu nối nhận sự kiện bất đồng bộ từ RabbitMQ và đẩy thông báo tức thời về thiết bị khách hàng qua SignalR (WebSockets).
+Hệ thống cho phép người dùng đặt lịch khám theo bác sĩ và khung giờ còn trống, nhận số thứ tự và theo dõi tiến độ hàng đợi theo thời gian thực.
+Yêu cầu cấp số thứ tự được xử lý **bất đồng bộ qua RabbitMQ** để chống nghẽn và chống tranh chấp số. Khi lượt khám thay đổi, các client liên quan (bệnh nhân và màn hình phòng khám) nhận cập nhật thời gian thực bằng **SignalR**.
+
+### Các chức năng chính:
+- **Tra cứu bác sĩ / phòng khám và khung giờ:** Xem danh sách bác sĩ theo chuyên khoa và kiểm tra các khung giờ khám còn chỗ trống (`is_available = true`, `current_bookings < max_capacity`).
+- **Đặt hoặc hủy lịch khám:** Tiếp nhận thông tin bệnh nhân, trừ slot trong Transaction CSDL, đưa yêu cầu cấp số thứ tự vào RabbitMQ (`appointment.requested`). Hỗ trợ hủy lịch khám và hoàn trả slot trống.
+- **Xử lý cấp số thứ tự bất đồng bộ:** `Queue Worker` nhận yêu cầu từ queue, sinh số thứ tự liên tục tăng dần theo bác sĩ/ngày khám, cập nhật trạng thái `Confirmed` và lưu vết kiểm toán vào `queue_logs`.
+- **Điều phối hàng đợi phòng khám:** Bác sĩ gọi số tiếp theo (`Call Next`), hoàn thành ca khám (`Complete Serving`), báo bệnh nhân vắng mặt (`No Show`).
+- **Thông báo thời gian thực:** `Notification Service` lắng nghe sự kiện từ RabbitMQ và đẩy thông báo tức thời đến Client qua SignalR WebSockets.
 
 ---
 
 ## 2. Sơ đồ kiến trúc phân tán
 
 ```
-[ Khách hàng Web UI ]                       [ Màn hình Bếp KDS ]
-        |                                            ^
-  (1) POST /orders                            (4) Realtime Push
-        v                                            |
-[   Order API       ]                       [ Notification Service ]
-(ASP.NET Core 5001)                         (SignalR Hub 5003)
-   |            \                                    ^
-(2)| Ghi CSDL    \ (3) Publish 'order.created'       | (6) Consume
-   v              v                                  |
-[ PostgreSQL ]   [ RabbitMQ Broker: Topic Exchange 'food.order.exchange' ]
-                      |
-                      | (5) Consume 'order.created'
-                      v
-             [ Kitchen Worker ] ---- (Cập nhật DB & Publish 'order.status.changed')
+Patient Client --------> Appointment API --------> PostgreSQL Database
+(index.html)        (ASP.NET Core :5001)             (Port :5432)
+                             |
+                             v (Publish: appointment.requested)
+                        RabbitMQ Topic Exchange: 'clinic.appointment.exchange'
+                             |
+                             v (Consume: queue.process.queue)
+                        Queue Worker ------------> PostgreSQL Database
+                     (.NET Worker Service)     (Assigns STT & Confirmed)
+                             |
+                             v (Publish: queue.number.assigned, queue.serving.changed)
+                        RabbitMQ Broker
+                             |
+                             v (Consume: queue.notification.queue)
+                    Notification Service --------> SignalR WebSocket --------> Client
+                     (SignalR Hub :5003)         (ReceiveQueueUpdate)    (Patient & Doctor UI)
 ```
 
 ---
@@ -40,124 +47,124 @@ Dự án xây dựng một hệ thống phân tán thực tế phục vụ quy t
 
 ```
 PTUDPT-DA/
-├── .gitignore                      # Cấu hình bỏ qua file build & tạm
-├── README.md                       # Hướng dẫn tổng quan & khởi chạy
-├── docker-compose.yml              # Containerization cho PostgreSQL & RabbitMQ
-├── FoodOrderSystem.sln             # Solution file .NET
+├── .gitignore                          # Cấu hình bỏ qua file build & tạm
+├── README.md                           # Hướng dẫn tổng quan & khởi chạy hệ thống
+├── docker-compose.yml                  # Containerization cho PostgreSQL & RabbitMQ
+├── ClinicAppointmentSystem.sln         # Solution file .NET (5 projects)
 ├── database/
-│   └── init.sql                    # Script DDL tạo bảng CSDL & dữ liệu mẫu (Seed Data)
+│   └── init.sql                        # Script DDL tạo bảng CSDL & dữ liệu mẫu (Seed Data)
 ├── docs/
-│   ├── KE_HOACH_9_TUAN.md          # Kế hoạch chi tiết 9 tuần theo bảng chuẩn quản lý
+│   ├── KE_HOACH_9_TUAN.md              # Kế hoạch chi tiết 9 tuần quản lý dự án
 │   ├── tuan-1/
-│   │   ├── YEU_CAU_HE_THONG.md     # Phân tích Functional & Non-Functional Requirements
-│   │   ├── USE_CASE_DIAGRAM.md     # Biểu đồ Use Case và đặc tả kịch bản
-│   │   └── ARCHITECTURE_OVERVIEW.md# Sơ đồ kiến trúc phân tán tổng quan & công nghệ
+│   │   ├── YEU_CAU_HE_THONG.md         # Phân tích Functional & Non-Functional Requirements
+│   │   ├── USE_CASE_DIAGRAM.md         # Biểu đồ Use Case và đặc tả kịch bản chính
+│   │   └── ARCHITECTURE_OVERVIEW.md    # Sơ đồ kiến trúc phân tán tổng quan & công nghệ
 │   ├── tuan-2/
-│   │   ├── KIEN_TRUC_CHI_TIET.md   # Thiết kế chi tiết từng service & phân định ranh giới
-│   │   ├── THIET_KE_CSDL_ERD.md    # Sơ đồ ERD, từ điển dữ liệu 5 bảng & Index
-│   │   ├── API_CONTRACT.md         # Đặc tả chuẩn REST API (Request/Response)
-│   │   └── RABBITMQ_DESIGN.md      # Topology RabbitMQ: Exchanges, Queues, DLQ, Routing Keys
+│   │   ├── KIEN_TRUC_CHI_TIET.md       # Thiết kế chi tiết từng service & phân định ranh giới
+│   │   ├── THIET_KE_CSDL_ERD.md        # Sơ đồ ERD, từ điển dữ liệu 5 bảng & Indexes
+│   │   ├── API_CONTRACT.md             # Đặc tả chuẩn REST API (Request/Response)
+│   │   └── RABBITMQ_DESIGN.md          # Topology RabbitMQ: Exchanges, Queues, DLQ, Routing Keys
 │   ├── tuan-3/
-│   │   ├── HUONG_DAN_TUAN_3.md     # Báo cáo triển khai Order API & Quản lý thực đơn
-│   │   ├── KET_QUA_KIEM_THU_TUAN_3.md # Báo cáo kết quả kiểm thử (18/18 tests passed)
-│   │   └── postman/
-│   │       └── Order_API_Collection.json # Postman Collection kiểm thử tự động
+│   │   ├── HUONG_DAN_TUAN_3.md         # Báo cáo kỹ thuật triển khai API tuần 3
+│   │   ├── KET_QUA_KIEM_THU_TUAN_3.md  # Báo cáo kết quả kiểm thử tự động
+│   │   └── postman/                    # Collection Postman tuần 3
 │   └── tuan-4/
-│       ├── TICH_HOP_RABBITMQ_CHUYEN_SAU.md # Báo cáo kỹ thuật: Persistent Connection, Confirms, DLQ
-│       ├── KIEM_CHUNG_THONG_DIEP_WEB_MANAGEMENT.md # Hướng dẫn kiểm chứng Web UI (15672)
-│       └── postman/
-│           └── Order_API_Collection.json # Postman Collection kèm RabbitMQ Diagnostics
+│       ├── TICH_HOP_RABBITMQ_CHUYEN_SAU.md  # Tài liệu tích hợp RabbitMQ kiên cố
+│       ├── KIEM_CHUNG_THONG_DIEP_WEB_MANAGEMENT.md # Kiểm chứng qua RabbitMQ UI
+│       └── postman/                    # Collection Postman tuần 4
 ├── postman/
-│   └── Order_API_Collection.json   # Postman Collection bản root (đầy đủ Tuần 1-4)
-├── tests/
-│   └── OrderApi.Tests/             # Bộ kiểm thử tự động xUnit, Moq, SQLite In-Memory (23 tests passed)
-└── src/
-    ├── Shared/                     # Thư viện dùng chung (Contracts, Events, Enums)
-    ├── OrderApi/                   # REST API tiếp nhận đơn & RabbitMQ Producer (Port 5001)
-    ├── KitchenWorker/              # Background Worker lắng nghe queue & làm món
-    ├── NotificationService/        # Realtime SignalR Hub phát thông báo (Port 5003)
-    └── Client/                     # Frontend Web: Màn hình khách & Màn hình bếp KDS
+│   └── ClinicQueue_API_Collection.json # Bộ test Postman tự động toàn diện
+├── src/
+│   ├── Shared/                         # Thư viện dùng chung (Contracts, Events, Enums)
+│   │   ├── Contracts/                  # AppointmentRequestedEvent, QueueNumberAssignedEvent, ...
+│   │   └── Enums/                      # AppointmentStatus (Pending, Confirmed, Serving, ...)
+│   ├── AppointmentApi/                 # Web API tiếp nhận đặt lịch & điều phối
+│   │   ├── Controllers/                # Doctors, Appointments, Queues, RabbitMqDiagnostics
+│   │   ├── Data/                       # AppDbContext, Entities (Doctor, TimeSlot, Patient, ...)
+│   │   ├── Models/                     # DTO Requests & Responses
+│   │   └── Services/                   # RabbitMqPersistentConnection, Producer, TopologyInitializer
+│   ├── QueueWorker/                    # Background Service cấp số thứ tự tự động
+│   │   └── Worker.cs                   # Consumer lắng nghe queue.process.queue & cấp số
+│   ├── NotificationService/            # Realtime Service SignalR Hub
+│   │   ├── Hubs/                       # QueueNotificationHub (Groups theo doctorId)
+│   │   └── Services/                   # Consumer lắng nghe queue.notification.queue
+│   └── Client/                         # Giao diện người dùng Web Frontend
+│       ├── index.html                  # Giao diện Bệnh nhân (Đặt khám & Phiếu STT realtime)
+│       ├── doctor.html                 # Giao diện Màn hình Bác sĩ (Gọi số, Hoàn thành, Vắng mặt)
+│       ├── css/style.css               # Thiết kế giao diện hiện đại
+│       └── js/                         # Logic tương tác REST API & SignalR Client
+└── tests/
+    └── AppointmentApi.Tests/           # Bộ kiểm thử tự động xUnit (19/19 tests passed)
+        ├── DoctorsControllerTests.cs
+        ├── AppointmentsControllerTests.cs
+        ├── QueuesControllerTests.cs
+        └── RabbitMqDiagnosticsControllerTests.cs
 ```
 
 ---
 
-## 4. Hướng dẫn cài đặt và Khởi chạy
+## 4. Danh sách API tối thiểu (Topic 09)
 
-### Bước 1: Khởi động Hạ tầng Container (PostgreSQL & RabbitMQ)
-Đảm bảo đã mở Docker Desktop, tại thư mục gốc chạy:
-```powershell
+| Method | Endpoint | Mô tả |
+|---|---|---|
+| `GET` | `/api/doctors` | Lấy danh sách bác sĩ / phòng khám (hỗ trợ lọc `specialty`, `search`). |
+| `GET` | `/api/doctors/{id}/slots` | Lấy danh sách khung giờ còn chỗ theo bác sĩ. |
+| `POST` | `/api/appointments` | Đặt lịch khám mới, kiểm tra slot trống, đưa yêu cầu cấp số vào RabbitMQ. |
+| `DELETE` | `/api/appointments/{id}` | Hủy lịch khám, giải phóng chỗ trống của khung giờ. |
+| `GET` | `/api/appointments/{id}` | Tra cứu chi tiết lịch hẹn, số thứ tự và lịch sử kiểm toán timeline. |
+| `GET` | `/api/queues/{doctorId}` | Tra cứu trạng thái hàng đợi phòng khám (số đang phục vụ, danh sách chờ). |
+| `POST` | `/api/queues/{doctorId}/next` | Bác sĩ gọi số thứ tự tiếp theo vào phòng khám (phát sự kiện realtime). |
+| `POST` | `/api/queues/{doctorId}/complete` | Bác sĩ hoàn thành ca khám hiện tại. |
+| `POST` | `/api/queues/{doctorId}/noshow` | Báo bệnh nhân vắng mặt. |
+| `GET` | `/api/rabbitmq/health` | Kiểm tra tình trạng kết nối tới RabbitMQ Broker. |
+| `GET` | `/api/rabbitmq/topology` | Kiểm tra cấu hình Exchanges, Queues và Bindings. |
+| `POST` | `/api/rabbitmq/test-publish` | Gửi message kiểm tra kết nối RabbitMQ. |
+
+---
+
+## 5. Hướng dẫn khởi chạy hệ thống
+
+### 5.1. Khởi động CSDL & Message Broker (Docker Compose)
+```bash
 docker compose up -d
 ```
-Kiểm tra các dịch vụ đang chạy:
-- **PostgreSQL Database:** `localhost:5432` (User: `postgres`, Pass: `postgres`, DB: `food_order_db`)
-- **RabbitMQ Web Management:** `http://localhost:15672` (User: `guest`, Pass: `guest`)
+- **PostgreSQL:** `localhost:5432` (Database: `clinic_queue_db`, User: `postgres`, Pass: `postgres123`)
+- **RabbitMQ Broker:** `localhost:5672`
+- **RabbitMQ Management UI:** `http://localhost:15672` (Tài khoản: `guest` / `guest`)
 
-### Bước 2: Biên dịch toàn bộ Solution .NET
-```powershell
-dotnet build FoodOrderSystem.sln
+### 5.2. Chạy Appointment API (Port 5001)
+```bash
+dotnet run --project src/AppointmentApi/AppointmentApi.csproj
 ```
-*Kết quả:* Biên dịch thành công 5 project (`Shared`, `OrderApi`, `KitchenWorker`, `NotificationService`, `OrderApi.Tests`) với 0 Warning và 0 Error.
+- **Swagger UI:** `http://localhost:5001/swagger`
 
-### Bước 3: Chạy Kiểm thử Tự động (Automated Tests - Tuần 1 đến 4)
-```powershell
-dotnet test FoodOrderSystem.sln
-```
-*Kết quả:* Vượt qua toàn bộ **23/23 unit/integration test cases** (100% Passed) kiểm tra nghiệp vụ tính tiền server-side, validation, quản lý thực đơn, RabbitMQ Persistent Connection và Diagnostics.
-
-### Bước 4: Kiểm chứng RabbitMQ qua Web Management Console (Tuần 4)
-1. Mở trình duyệt vào [http://localhost:15672](http://localhost:15672) (User: `guest` / `guest`).
-2. Tab **Exchanges**: kiểm tra `food.order.exchange` (Topic, Durable) và `food.order.dlx` (Direct, Durable).
-3. Tab **Queues**: kiểm tra `order.process.queue` (gắn DLX), `order.notification.queue`, và `order.dlq`.
-4. Gửi test message hoặc tạo đơn hàng qua API $\to$ kiểm tra số lượng message `Ready` tăng lên và bấm "Get messages" để xem nội dung JSON payload và thuộc tính `delivery_mode: 2` (Persistent).
-5. Chi tiết từng bước có ảnh/sơ đồ tại [docs/tuan-4/KIEM_CHUNG_THONG_DIEP_WEB_MANAGEMENT.md](docs/tuan-4/KIEM_CHUNG_THONG_DIEP_WEB_MANAGEMENT.md).
-```powershell
-dotnet build FoodOrderSystem.sln
-```
-*Kết quả:* Biên dịch thành công 5 project (`Shared`, `OrderApi`, `KitchenWorker`, `NotificationService`, `OrderApi.Tests`) với 0 Warning và 0 Error.
-
-### Bước 3: Chạy Kiểm thử Tự động (Automated Tests - Tuần 3)
-```powershell
-dotnet test FoodOrderSystem.sln
-```
-*Kết quả:* Vượt qua toàn bộ **18/18 unit/integration test cases** (100% Passed) kiểm tra nghiệp vụ tính tiền server-side, validation, quản lý thực đơn và chuyển trạng thái.
-
-### Bước 4: Khởi chạy các Service (Mở riêng từng Terminal)
-
-**Terminal 1 - Khởi chạy Order API:**
-```powershell
-dotnet run --project src/OrderApi/OrderApi.csproj --urls "http://localhost:5001"
-```
-*Truy cập Swagger UI:* `http://localhost:5001` để xem và test trực tiếp các API `/api/menu`, `/api/orders`.
-
-**Terminal 2 - Khởi chạy Notification Service:**
-```powershell
-dotnet run --project src/NotificationService/NotificationService.csproj --urls "http://localhost:5003"
-```
-*Truy cập Endpoint:* `http://localhost:5003`
-
-**Terminal 3 - Khởi chạy Kitchen Worker:**
-```powershell
-dotnet run --project src/KitchenWorker/KitchenWorker.csproj
+### 5.3. Chạy Queue Worker (Background Service)
+Mở cửa sổ terminal mới:
+```bash
+dotnet run --project src/QueueWorker/QueueWorker.csproj
 ```
 
-**Terminal 4 - Mở giao diện Web Client:**
-Mở trực tiếp file `src/Client/index.html` (Khách hàng) và `src/Client/kitchen.html` (Màn hình bếp) trên trình duyệt hoặc chạy qua Live Server:
-```powershell
-npx serve src/Client -p 8080
+### 5.4. Chạy Notification Service (Port 5003)
+Mở cửa sổ terminal mới:
+```bash
+dotnet run --project src/NotificationService/NotificationService.csproj
 ```
-Truy cập: `http://localhost:8080`
+- **SignalR Hub Endpoint:** `http://localhost:5003/hubs/queue-notification`
 
-### Bước 5: Kiểm thử bằng Postman Collection
-Import file `postman/Order_API_Collection.json` vào Postman để chạy 17 test requests tự động với kịch bản từ xem menu, đặt món, kiểm tra lỗi validation đến cập nhật trạng thái bếp.
+### 5.5. Trải nghiệm Giao diện Web Client
+Mở trực tiếp bằng trình duyệt hoặc dùng Live Server (VS Code) / Python HTTP server:
+- **Giao diện Bệnh nhân:** `src/Client/index.html`
+- **Giao diện Màn hình Phòng khám Bác sĩ:** `src/Client/doctor.html`
 
-**Terminal 3 - Khởi chạy Kitchen Worker:**
-```powershell
-dotnet run --project src/KitchenWorker/KitchenWorker.csproj
+---
+
+## 6. Kiểm thử tự động (Automated Testing)
+
+### 6.1. Chạy Unit Tests (.NET xUnit)
+```bash
+dotnet test ClinicAppointmentSystem.sln
 ```
+**Kết quả:** 19/19 test cases thành công (100% Passed) bao gồm kiểm thử ACID Transaction, Slot Validation, Cấp số thứ tự, RabbitMQ Event Publishing và Exception Handling.
 
-**Terminal 4 - Mở giao diện Web Client:**
-Mở trực tiếp file `src/Client/index.html` (Khách hàng) và `src/Client/kitchen.html` (Màn hình bếp) trên trình duyệt hoặc chạy qua Live Server:
-```powershell
-npx serve src/Client -p 8080
-```
-Truy cập: `http://localhost:8080`
+### 6.2. Chạy Postman Collection
+Import file [ClinicQueue_API_Collection.json](file:///d:/PTUDPT-DA/postman/ClinicQueue_API_Collection.json) vào Postman và chạy với Collection Runner.
